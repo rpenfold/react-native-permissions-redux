@@ -1,8 +1,10 @@
-import type { Permission, PermissionStatus } from 'react-native-permissions';
+import type { PermissionStatus } from 'react-native-permissions';
 import { SLICE_NAME } from './constants';
+import { resolvePermissionInput } from './cross-platform';
 import type {
   LocationAccuracyState,
   NotificationsState,
+  PermissionInput,
   PermissionsState,
 } from './types';
 
@@ -11,9 +13,12 @@ type RootState = { [SLICE_NAME]: PermissionsState };
 const selectSlice = (state: RootState): PermissionsState => state[SLICE_NAME];
 
 export const selectPermissionStatus =
-  (permission: Permission) =>
-  (state: RootState): PermissionStatus | null =>
-    selectSlice(state).statuses[permission] ?? null;
+  (permission: PermissionInput) =>
+  (state: RootState): PermissionStatus | null => {
+    const result = resolvePermissionInput(permission);
+    const key = result.unavailable ? permission : result.resolved;
+    return selectSlice(state).statuses[key] ?? null;
+  };
 
 export const selectAllStatuses = (
   state: RootState,

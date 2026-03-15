@@ -18,6 +18,7 @@ This means you end up writing the same boilerplate in every project:
 - Threading permission state through component props or context
 - Forgetting to re-sync after the user returns from Settings
 - Duplicating check/request logic across screens
+- Dealing with `PERMISSIONS.IOS.CAMERA` vs `PERMISSIONS.ANDROID.CAMERA` everywhere
 
 ## The Solution
 
@@ -31,7 +32,7 @@ reducer: { [SLICE_NAME]: permissionsReducer }
 startPermissionListener(store, { permissions: [...], notifications: true })
 
 // 3. Use it anywhere
-const [status, request] = usePermission(PERMISSIONS.IOS.CAMERA)
+const [status, request] = usePermission(CrossPlatformPermission.CAMERA)
 ```
 
 When your app returns to the foreground, all tracked permissions are automatically re-checked. Your components re-render. No boilerplate.
@@ -43,7 +44,8 @@ When your app returns to the foreground, all tracked permissions are automatical
 - **Automatic foreground sync** — Uses `AppState` to re-check permissions whenever your app becomes active. Your users toggle a permission in Settings, come back, and everything Just Works.
 - **Atomic state updates** — Every `check` and `request` call updates Redux state on completion. No manual dispatching, no stale reads.
 - **Three purpose-built hooks** — `usePermission`, `useNotificationPermission`, and `useLocationAccuracy` return `[state, request, check]` tuples, similar to `useState`. Clean and familiar.
-- **Full react-native-permissions coverage** — Single permissions, bulk permissions, notifications, and iOS location accuracy. Everything is wrapped.
+- **Cross-platform permission abstraction** — Use `CrossPlatformPermission.CAMERA` instead of `PERMISSIONS.IOS.CAMERA` / `PERMISSIONS.ANDROID.CAMERA`. Write once, resolves to the right native permission at runtime. Falls back to `'unavailable'` when there's no equivalent on the current platform.
+- **Full react-native-permissions coverage** — Single permissions, bulk permissions, notifications, and iOS location accuracy. Everything is wrapped. You can still use native `PERMISSIONS.IOS.*` / `PERMISSIONS.ANDROID.*` if you need platform-specific control.
 - **Tiny footprint** — No runtime dependencies beyond your existing peer deps. Tree-shakeable exports.
 - **100% TypeScript** — Strict types, full inference, re-exported upstream types for convenience.
 
@@ -92,15 +94,17 @@ export const store = configureStore({
 Call this once at app startup (e.g., in your root component or entry file). It runs an initial sync immediately, then re-syncs every time the app returns to the foreground.
 
 ```ts
-import { startPermissionListener } from 'react-native-permissions-redux';
-import { PERMISSIONS } from 'react-native-permissions';
+import {
+  CrossPlatformPermission,
+  startPermissionListener,
+} from 'react-native-permissions-redux';
 
 // Start listening — returns a teardown function
 const stopListening = startPermissionListener(store, {
   permissions: [
-    PERMISSIONS.IOS.CAMERA,
-    PERMISSIONS.IOS.PHOTO_LIBRARY,
-    PERMISSIONS.IOS.LOCATION_WHEN_IN_USE,
+    CrossPlatformPermission.CAMERA,
+    CrossPlatformPermission.PHOTO_LIBRARY,
+    CrossPlatformPermission.LOCATION_WHEN_IN_USE,
   ],
   notifications: true,
   locationAccuracy: true, // iOS 14+ only
@@ -112,11 +116,10 @@ const stopListening = startPermissionListener(store, {
 ### 3. Use hooks in your components
 
 ```tsx
-import { usePermission } from 'react-native-permissions-redux';
-import { PERMISSIONS } from 'react-native-permissions';
+import { CrossPlatformPermission, usePermission } from 'react-native-permissions-redux';
 
 function CameraButton() {
-  const [status, requestCamera] = usePermission(PERMISSIONS.IOS.CAMERA);
+  const [status, requestCamera] = usePermission(CrossPlatformPermission.CAMERA);
 
   if (status === 'granted') {
     return <OpenCameraButton />;
@@ -189,6 +192,78 @@ Since `react-native-permissions` is stateless (no event emitters), `AppState` is
 
 ---
 
+## Cross-Platform Permissions
+
+Instead of scattering `PERMISSIONS.IOS.CAMERA` and `PERMISSIONS.ANDROID.CAMERA` throughout your codebase, use `CrossPlatformPermission` — a single enum that resolves to the correct native permission at runtime.
+
+```tsx
+import { CrossPlatformPermission, usePermission } from 'react-native-permissions-redux';
+
+// Works on both iOS and Android — no Platform.select needed
+const [status, request] = usePermission(CrossPlatformPermission.CAMERA);
+```
+
+### Available Cross-Platform Permissions
+
+| CrossPlatformPermission | iOS | Android |
+|---|---|---|
+| `CAMERA` | `CAMERA` | `CAMERA` |
+| `MICROPHONE` | `MICROPHONE` | `RECORD_AUDIO` |
+| `PHOTO_LIBRARY` | `PHOTO_LIBRARY` | `READ_MEDIA_IMAGES` |
+| `PHOTO_LIBRARY_WRITE` | `PHOTO_LIBRARY_ADD_ONLY` | `WRITE_EXTERNAL_STORAGE` |
+| `CONTACTS_READ` | `CONTACTS` | `READ_CONTACTS` |
+| `CONTACTS_WRITE` | `CONTACTS` | `WRITE_CONTACTS` |
+| `CALENDAR_READ` | `CALENDARS` | `READ_CALENDAR` |
+| `CALENDAR_WRITE` | `CALENDARS_WRITE_ONLY` | `WRITE_CALENDAR` |
+| `LOCATION_WHEN_IN_USE` | `LOCATION_WHEN_IN_USE` | `ACCESS_FINE_LOCATION` |
+| `LOCATION_ALWAYS` | `LOCATION_ALWAYS` | `ACCESS_BACKGROUND_LOCATION` |
+| `BLUETOOTH` | `BLUETOOTH` | `BLUETOOTH_CONNECT` |
+| `MOTION` | `MOTION` | `ACTIVITY_RECOGNITION` |
+| `SPEECH_RECOGNITION` | `SPEECH_RECOGNITION` | — |
+| `MEDIA_LIBRARY` | `MEDIA_LIBRARY` | — |
+| `FACE_ID` | `FACE_ID` | — |
+| `SIRI` | `SIRI` | — |
+| `APP_TRACKING` | `APP_TRACKING_TRANSPARENCY` | — |
+| `REMINDERS` | `REMINDERS` | — |
+| `NOTIFICATIONS` | — | `POST_NOTIFICATIONS` |
+| `PHONE_CALL` | — | `CALL_PHONE` |
+| `READ_SMS` | — | `READ_SMS` |
+| `SEND_SMS` | — | `SEND_SMS` |
+| `BODY_SENSORS` | — | `BODY_SENSORS` |
+
+A `—` means the permission has no equivalent on that platform. Checking or requesting it will return `'unavailable'` without touching the native module.
+
+### Mixing cross-platform and native permissions
+
+You can freely mix both styles. All hooks, thunks, selectors, and the listener accept either `CrossPlatformPermission` or native `Permission` strings:
+
+```ts
+startPermissionListener(store, {
+  permissions: [
+    CrossPlatformPermission.CAMERA,          // cross-platform
+    PERMISSIONS.ANDROID.NEARBY_WIFI_DEVICES,  // native, Android-specific
+  ],
+});
+```
+
+### `resolvePermission(crossPlatformPermission)`
+
+If you need to see what a cross-platform permission resolves to on the current platform:
+
+```ts
+import { resolvePermission, CrossPlatformPermission } from 'react-native-permissions-redux';
+
+resolvePermission(CrossPlatformPermission.CAMERA);
+// iOS:     'ios.permission.CAMERA'
+// Android: 'android.permission.CAMERA'
+
+resolvePermission(CrossPlatformPermission.FACE_ID);
+// iOS:     'ios.permission.FACE_ID'
+// Android: null
+```
+
+---
+
 ## API Reference
 
 ### Reducer & Constants
@@ -236,7 +311,7 @@ The main integration point. Subscribes to `AppState` and keeps your Redux store 
 #### `usePermission(permission)`
 
 ```ts
-const [status, request, check] = usePermission(PERMISSIONS.IOS.CAMERA);
+const [status, request, check] = usePermission(CrossPlatformPermission.CAMERA);
 ```
 
 | Return | Type | Description |
@@ -278,10 +353,10 @@ All thunks call the corresponding `react-native-permissions` function and update
 
 | Thunk | Argument | Upstream Call |
 |---|---|---|
-| `checkPermission` | `Permission` | `RNP.check()` |
-| `requestPermission` | `{ permission, rationale? }` | `RNP.request()` |
-| `checkMultiplePermissions` | `Permission[]` | `RNP.checkMultiple()` |
-| `requestMultiplePermissions` | `Permission[]` | `RNP.requestMultiple()` |
+| `checkPermission` | `PermissionInput` | `RNP.check()` |
+| `requestPermission` | `{ permission: PermissionInput, rationale? }` | `RNP.request()` |
+| `checkMultiplePermissions` | `PermissionInput[]` | `RNP.checkMultiple()` |
+| `requestMultiplePermissions` | `PermissionInput[]` | `RNP.requestMultiple()` |
 | `checkNotifications` | — | `RNP.checkNotifications()` |
 | `requestNotifications` | `{ options }` | `RNP.requestNotifications()` |
 | `checkLocationAccuracy` | — | `RNP.checkLocationAccuracy()` |
@@ -306,8 +381,14 @@ All selectors expect the root state to have the permissions slice mounted at `[S
 All types from `react-native-permissions` are re-exported for convenience:
 
 ```ts
+import {
+  CrossPlatformPermission,  // enum (value + type)
+  resolvePermission,        // utility function
+} from 'react-native-permissions-redux';
+
 import type {
-  Permission,
+  Permission,               // native platform-specific permission string
+  PermissionInput,          // Permission | CrossPlatformPermission
   PermissionStatus,
   Rationale,
   NotificationSettings,
@@ -333,13 +414,15 @@ import type {
 If you prefer dispatching thunks directly — for example, in a saga, middleware, or non-component code:
 
 ```ts
-import { checkPermission, requestPermission } from 'react-native-permissions-redux';
-import { PERMISSIONS } from 'react-native-permissions';
+import {
+  CrossPlatformPermission,
+  requestPermission,
+} from 'react-native-permissions-redux';
 
 // In a thunk or component
 const result = await dispatch(
   requestPermission({
-    permission: PERMISSIONS.ANDROID.CAMERA,
+    permission: CrossPlatformPermission.CAMERA,
     rationale: {
       title: 'Camera Permission',
       message: 'This app needs camera access to take photos.',
@@ -355,11 +438,14 @@ console.log(result.status); // 'granted' | 'denied' | 'blocked' | ...
 
 ```ts
 import { useSelector } from 'react-redux';
-import { selectPermissionStatus, selectLastSyncedAt } from 'react-native-permissions-redux';
-import { PERMISSIONS } from 'react-native-permissions';
+import {
+  CrossPlatformPermission,
+  selectPermissionStatus,
+  selectLastSyncedAt,
+} from 'react-native-permissions-redux';
 
 function MyComponent() {
-  const cameraStatus = useSelector(selectPermissionStatus(PERMISSIONS.IOS.CAMERA));
+  const cameraStatus = useSelector(selectPermissionStatus(CrossPlatformPermission.CAMERA));
   const lastSync = useSelector(selectLastSyncedAt);
   // ...
 }
@@ -368,18 +454,20 @@ function MyComponent() {
 ### Checking multiple permissions at once
 
 ```ts
-import { checkMultiplePermissions } from 'react-native-permissions-redux';
-import { PERMISSIONS } from 'react-native-permissions';
+import {
+  CrossPlatformPermission,
+  checkMultiplePermissions,
+} from 'react-native-permissions-redux';
 
 await dispatch(
   checkMultiplePermissions([
-    PERMISSIONS.IOS.CAMERA,
-    PERMISSIONS.IOS.MICROPHONE,
-    PERMISSIONS.IOS.PHOTO_LIBRARY,
+    CrossPlatformPermission.CAMERA,
+    CrossPlatformPermission.MICROPHONE,
+    CrossPlatformPermission.PHOTO_LIBRARY,
   ]),
 );
 
-// All three statuses are now in the store
+// All three statuses are now in the store — works on both platforms
 ```
 
 ---

@@ -2,7 +2,6 @@ import type { ThunkDispatch, UnknownAction } from '@reduxjs/toolkit';
 import { useCallback } from 'react';
 import type {
   NotificationOption,
-  Permission,
   PermissionStatus,
   Rationale,
 } from 'react-native-permissions';
@@ -24,6 +23,7 @@ import {
 import type {
   LocationAccuracyState,
   NotificationsState,
+  PermissionInput,
   PermissionsState,
 } from './types';
 
@@ -31,7 +31,7 @@ type RootState = { [SLICE_NAME]: PermissionsState };
 type AppDispatch = ThunkDispatch<RootState, unknown, UnknownAction>;
 
 export function usePermission(
-  permission: Permission,
+  permission: PermissionInput,
 ): [
   status: PermissionStatus | null,
   request: (rationale?: Rationale) => Promise<PermissionStatus>,

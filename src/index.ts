@@ -25,7 +25,9 @@ export {
   useLocationAccuracy,
 } from './hooks';
 export { startPermissionListener } from './listener';
+export { CrossPlatformPermission, resolvePermission } from './cross-platform';
 export type {
+  PermissionInput,
   PermissionsState,
   PermissionsConfig,
   NotificationsState,

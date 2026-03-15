@@ -6,6 +6,7 @@ import type {
   PermissionStatus,
   Rationale,
 } from 'react-native-permissions';
+import type { CrossPlatformPermission } from './cross-platform';
 
 export type {
   LocationAccuracy,
@@ -15,6 +16,8 @@ export type {
   PermissionStatus,
   Rationale,
 } from 'react-native-permissions';
+
+export type PermissionInput = Permission | CrossPlatformPermission;
 
 export interface NotificationsState {
   status: PermissionStatus | null;
@@ -34,13 +37,13 @@ export interface PermissionsState {
 }
 
 export interface PermissionsConfig {
-  permissions?: Permission[];
+  permissions?: PermissionInput[];
   notifications?: boolean;
   locationAccuracy?: boolean;
 }
 
 export interface RequestPermissionPayload {
-  permission: Permission;
+  permission: PermissionInput;
   rationale?: Rationale;
 }
 

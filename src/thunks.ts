@@ -11,6 +11,11 @@ import {
 } from 'react-native-permissions';
 import type { Permission, PermissionStatus } from 'react-native-permissions';
 import { SLICE_NAME } from './constants';
+import {
+  type CrossPlatformPermission,
+  UNAVAILABLE_STATUS,
+  resolvePermissionInput,
+} from './cross-platform';
 import type {
   PermissionsConfig,
   RequestLocationAccuracyPayload,
@@ -18,35 +23,77 @@ import type {
   RequestPermissionPayload,
 } from './types';
 
+type PermissionInput = Permission | CrossPlatformPermission;
+
 export const checkPermission = createAsyncThunk(
   `${SLICE_NAME}/checkPermission`,
-  async (permission: Permission) => {
-    const status = await check(permission);
-    return { permission, status };
+  async (permission: PermissionInput) => {
+    const result = resolvePermissionInput(permission);
+    if (result.unavailable) {
+      return { permission, status: UNAVAILABLE_STATUS };
+    }
+    const status = await check(result.resolved);
+    return { permission: result.resolved as string, status };
   },
 );
 
 export const requestPermission = createAsyncThunk(
   `${SLICE_NAME}/requestPermission`,
   async ({ permission, rationale }: RequestPermissionPayload) => {
-    const status = await request(permission, rationale);
-    return { permission, status };
+    const result = resolvePermissionInput(permission);
+    if (result.unavailable) {
+      return { permission, status: UNAVAILABLE_STATUS };
+    }
+    const status = await request(result.resolved, rationale);
+    return { permission: result.resolved as string, status };
   },
 );
 
 export const checkMultiplePermissions = createAsyncThunk(
   `${SLICE_NAME}/checkMultiplePermissions`,
-  async (permissions: Permission[]) => {
-    const statuses = await checkMultiple(permissions);
-    return statuses as Record<string, PermissionStatus>;
+  async (permissions: PermissionInput[]) => {
+    const statuses: Record<string, PermissionStatus> = {};
+    const toCheck: Permission[] = [];
+
+    for (const perm of permissions) {
+      const result = resolvePermissionInput(perm);
+      if (result.unavailable) {
+        statuses[perm] = UNAVAILABLE_STATUS;
+      } else {
+        toCheck.push(result.resolved);
+      }
+    }
+
+    if (toCheck.length > 0) {
+      const nativeStatuses = await checkMultiple(toCheck);
+      Object.assign(statuses, nativeStatuses);
+    }
+
+    return statuses;
   },
 );
 
 export const requestMultiplePermissions = createAsyncThunk(
   `${SLICE_NAME}/requestMultiplePermissions`,
-  async (permissions: Permission[]) => {
-    const statuses = await requestMultiple(permissions);
-    return statuses as Record<string, PermissionStatus>;
+  async (permissions: PermissionInput[]) => {
+    const statuses: Record<string, PermissionStatus> = {};
+    const toRequest: Permission[] = [];
+
+    for (const perm of permissions) {
+      const result = resolvePermissionInput(perm);
+      if (result.unavailable) {
+        statuses[perm] = UNAVAILABLE_STATUS;
+      } else {
+        toRequest.push(result.resolved);
+      }
+    }
+
+    if (toRequest.length > 0) {
+      const nativeStatuses = await requestMultiple(toRequest);
+      Object.assign(statuses, nativeStatuses);
+    }
+
+    return statuses;
   },
 );
 
@@ -92,8 +139,24 @@ export const syncPermissions = createAsyncThunk(
     } = {};
 
     if (config.permissions && config.permissions.length > 0) {
-      const statuses = await checkMultiple(config.permissions);
-      results.statuses = statuses as Record<string, PermissionStatus>;
+      const statuses: Record<string, PermissionStatus> = {};
+      const toCheck: Permission[] = [];
+
+      for (const perm of config.permissions) {
+        const result = resolvePermissionInput(perm);
+        if (result.unavailable) {
+          statuses[perm] = UNAVAILABLE_STATUS;
+        } else {
+          toCheck.push(result.resolved);
+        }
+      }
+
+      if (toCheck.length > 0) {
+        const nativeStatuses = await checkMultiple(toCheck);
+        Object.assign(statuses, nativeStatuses);
+      }
+
+      results.statuses = statuses;
     }
 
     if (config.notifications) {
