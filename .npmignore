@@ -1,0 +1,13 @@
+src/
+__tests__/
+.github/
+.husky/
+.claude/
+coverage/
+jest.setup.ts
+tsconfig.json
+tsconfig.build.json
+biome.json
+.gitignore
+.npmignore
+*.tgz
