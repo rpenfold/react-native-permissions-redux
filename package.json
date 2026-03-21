@@ -1,6 +1,6 @@
 {
   "name": "react-native-permissions-redux",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "Redux slice for react-native-permissions with automatic foreground sync",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
