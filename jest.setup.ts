@@ -44,6 +44,7 @@ jest.mock('react-native-permissions', () => ({
     ANDROID: {
       ACCESS_BACKGROUND_LOCATION:
         'android.permission.ACCESS_BACKGROUND_LOCATION',
+      ACCESS_COARSE_LOCATION: 'android.permission.ACCESS_COARSE_LOCATION',
       ACCESS_FINE_LOCATION: 'android.permission.ACCESS_FINE_LOCATION',
       ACTIVITY_RECOGNITION: 'android.permission.ACTIVITY_RECOGNITION',
       BLUETOOTH_CONNECT: 'android.permission.BLUETOOTH_CONNECT',

@@ -43,7 +43,7 @@ When your app returns to the foreground, all tracked permissions are automatical
 
 - **Automatic foreground sync** — Uses `AppState` to re-check permissions whenever your app becomes active. Your users toggle a permission in Settings, come back, and everything Just Works.
 - **Atomic state updates** — Every `check` and `request` call updates Redux state on completion. No manual dispatching, no stale reads.
-- **Three purpose-built hooks** — `usePermission`, `useNotificationPermission`, and `useLocationAccuracy` return `[state, request, check]` tuples, similar to `useState`. Clean and familiar.
+- **Three purpose-built hooks** — `usePermission`, `useNotificationPermission`, and `useLocationAccuracy` return `[state, request, check]` tuples, similar to `useState`. Clean and familiar. **`useLocationForegroundCapability`** combines coarse/fine permission state with iOS location accuracy for a single foreground location view.
 - **Cross-platform permission abstraction** — Use `CrossPlatformPermission.CAMERA` instead of `PERMISSIONS.IOS.CAMERA` / `PERMISSIONS.ANDROID.CAMERA`. Write once, resolves to the right native permission at runtime. Falls back to `'unavailable'` when there's no equivalent on the current platform.
 - **Full react-native-permissions coverage** — Single permissions, bulk permissions, notifications, and iOS location accuracy. Everything is wrapped. You can still use native `PERMISSIONS.IOS.*` / `PERMISSIONS.ANDROID.*` if you need platform-specific control.
 - **Tiny footprint** — No runtime dependencies beyond your existing peer deps. Tree-shakeable exports.
@@ -104,10 +104,11 @@ const stopListening = startPermissionListener(store, {
   permissions: [
     CrossPlatformPermission.CAMERA,
     CrossPlatformPermission.PHOTO_LIBRARY,
-    CrossPlatformPermission.LOCATION_WHEN_IN_USE,
+    CrossPlatformPermission.LOCATION_COARSE,
+    CrossPlatformPermission.LOCATION_FINE,
   ],
   notifications: true,
-  locationAccuracy: true, // iOS 14+ only
+  locationAccuracy: true, // iOS 14+; needed for unified foreground `precision`
 });
 
 // Call stopListening() if you ever need to tear down (e.g., logout)
@@ -216,7 +217,13 @@ const [status, request] = usePermission(CrossPlatformPermission.CAMERA);
 | `CALENDAR_READ` | `CALENDARS` | `READ_CALENDAR` |
 | `CALENDAR_WRITE` | `CALENDARS_WRITE_ONLY` | `WRITE_CALENDAR` |
 | `LOCATION_WHEN_IN_USE` | `LOCATION_WHEN_IN_USE` | `ACCESS_FINE_LOCATION` |
+| `LOCATION_COARSE` | `LOCATION_WHEN_IN_USE` | `ACCESS_COARSE_LOCATION` |
+| `LOCATION_FINE` | `LOCATION_WHEN_IN_USE` | `ACCESS_FINE_LOCATION` |
 | `LOCATION_ALWAYS` | `LOCATION_ALWAYS` | `ACCESS_BACKGROUND_LOCATION` |
+
+On iOS there is no separate Info.plist string for “approximate only”; `LOCATION_COARSE` and `LOCATION_FINE` both resolve to **When In Use**. Approximate vs precise comes from **location accuracy** (`checkLocationAccuracy`), not from two permission strings.
+
+On Android, coarse and fine are **separate runtime grants**. Include **both** `LOCATION_COARSE` and `LOCATION_FINE` in `startPermissionListener` / `checkMultiplePermissions` if you use the unified foreground helper below.
 | `BLUETOOTH` | `BLUETOOTH` | `BLUETOOTH_CONNECT` |
 | `MOTION` | `MOTION` | `ACTIVITY_RECOGNITION` |
 | `SPEECH_RECOGNITION` | `SPEECH_RECOGNITION` | — |
@@ -245,6 +252,33 @@ startPermissionListener(store, {
   ],
 });
 ```
+
+### Unified foreground location (`access` + `precision`)
+
+Use **`getLocationForegroundCapability(state)`** or **`selectLocationForegroundCapability`** / **`useLocationForegroundCapability`** when you want one object instead of juggling coarse, fine, and (on iOS) accuracy separately.
+
+```ts
+import {
+  useLocationForegroundCapability,
+  selectLocationForegroundCapability,
+  getLocationForegroundCapability,
+} from 'react-native-permissions-redux';
+
+// Hook: [capability, refresh]
+const [{ access, precision }, refresh] = useLocationForegroundCapability();
+
+// access  — combined foreground permission (`granted` | `limited` | `denied` | `blocked` | `null` if not checked | `unavailable` on unsupported platforms)
+// precision — 'precise' | 'approximate' | 'unknown'
+```
+
+**How `precision` is derived**
+
+- **Android:** `precise` if fine location is granted (or `limited`); else `approximate` if only coarse is granted; else `unknown`.
+- **iOS:** `precise` / `approximate` from **`LocationAccuracy`** (`full` / `reduced`) after When In Use access is granted. If accuracy has not been synced, precision is **`unknown`** even when access is granted.
+
+**Minimum OS note:** Reduced vs full location accuracy requires the APIs behind `checkLocationAccuracy` (**iOS 14+**). On older iOS versions, `precision` often stays **`unknown`** even when `access` is `granted`. There is no polyfill for that distinction.
+
+**Redux store:** The helper reads `statuses` for the native keys behind `LOCATION_COARSE` and `LOCATION_FINE`, and `locationAccuracy` from the slice. Use `refresh()` from the hook, or ensure `startPermissionListener` lists those permissions and sets `locationAccuracy: true` on iOS.
 
 ### `resolvePermission(crossPlatformPermission)`
 
@@ -347,6 +381,18 @@ const [state, request, check] = useLocationAccuracy();
 | `request` | `(purposeKey: string) => Promise<void>` | Requests full accuracy (iOS 14+) |
 | `check` | `() => Promise<void>` | Checks current accuracy |
 
+#### `useLocationForegroundCapability()`
+
+```ts
+const [{ access, precision }, refresh] = useLocationForegroundCapability();
+```
+
+| Return | Type | Description |
+|---|---|---|
+| `access` | `PermissionStatus \| null` | Combined coarse/fine foreground access (see unified location section) |
+| `precision` | `'precise' \| 'approximate' \| 'unknown'` | Android: from grants; iOS: from `LocationAccuracy` when synced |
+| `refresh` | `() => Promise<void>` | Dispatches `checkMultiplePermissions` for coarse+fine and `checkLocationAccuracy` on iOS |
+
 ### Thunks
 
 All thunks call the corresponding `react-native-permissions` function and update Redux state on fulfillment. You can dispatch them directly if you prefer thunks over hooks.
@@ -373,6 +419,7 @@ All selectors expect the root state to have the permissions slice mounted at `[S
 | `selectAllStatuses` | `Record<string, PermissionStatus>` | All tracked permission statuses |
 | `selectNotifications` | `{ status, settings }` | Notification permission state |
 | `selectLocationAccuracy` | `{ accuracy }` | Location accuracy state |
+| `selectLocationForegroundCapability` | `{ access, precision }` | Unified foreground location (see above) |
 | `selectListening` | `boolean` | Whether the AppState listener is active |
 | `selectLastSyncedAt` | `string \| null` | ISO timestamp of the last successful sync |
 
@@ -383,7 +430,9 @@ All types from `react-native-permissions` are re-exported for convenience:
 ```ts
 import {
   CrossPlatformPermission,  // enum (value + type)
-  resolvePermission,        // utility function
+  resolvePermission,
+  getLocationForegroundCapability,
+  selectLocationForegroundCapability,
 } from 'react-native-permissions-redux';
 
 import type {
@@ -399,6 +448,8 @@ import type {
   PermissionsConfig,
   NotificationsState,
   LocationAccuracyState,
+  LocationForegroundCapability,
+  LocationForegroundPrecision,
   RequestPermissionPayload,
   RequestNotificationsPayload,
   RequestLocationAccuracyPayload,

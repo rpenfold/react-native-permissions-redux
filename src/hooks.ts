@@ -1,5 +1,6 @@
 import type { ThunkDispatch, UnknownAction } from '@reduxjs/toolkit';
 import { useCallback } from 'react';
+import { Platform } from 'react-native';
 import type {
   NotificationOption,
   PermissionStatus,
@@ -7,13 +8,16 @@ import type {
 } from 'react-native-permissions';
 import { useDispatch, useSelector } from 'react-redux';
 import { SLICE_NAME } from './constants';
+import { CrossPlatformPermission } from './cross-platform';
 import {
   selectLocationAccuracy,
+  selectLocationForegroundCapability,
   selectNotifications,
   selectPermissionStatus,
 } from './selectors';
 import {
   checkLocationAccuracy,
+  checkMultiplePermissions,
   checkNotifications,
   checkPermission,
   requestLocationAccuracy,
@@ -22,6 +26,7 @@ import {
 } from './thunks';
 import type {
   LocationAccuracyState,
+  LocationForegroundCapability,
   NotificationsState,
   PermissionInput,
   PermissionsState,
@@ -100,4 +105,26 @@ export function useLocationAccuracy(): [
   }, [dispatch]);
 
   return [state, doRequest, doCheck];
+}
+
+export function useLocationForegroundCapability(): [
+  LocationForegroundCapability,
+  refresh: () => Promise<void>,
+] {
+  const dispatch = useDispatch<AppDispatch>();
+  const capability = useSelector(selectLocationForegroundCapability);
+
+  const refresh = useCallback(async () => {
+    await dispatch(
+      checkMultiplePermissions([
+        CrossPlatformPermission.LOCATION_COARSE,
+        CrossPlatformPermission.LOCATION_FINE,
+      ]),
+    ).unwrap();
+    if (Platform.OS === 'ios') {
+      await dispatch(checkLocationAccuracy()).unwrap();
+    }
+  }, [dispatch]);
+
+  return [capability, refresh];
 }

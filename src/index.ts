@@ -16,6 +16,7 @@ export {
   selectAllStatuses,
   selectNotifications,
   selectLocationAccuracy,
+  selectLocationForegroundCapability,
   selectListening,
   selectLastSyncedAt,
 } from './selectors';
@@ -23,8 +24,10 @@ export {
   usePermission,
   useNotificationPermission,
   useLocationAccuracy,
+  useLocationForegroundCapability,
 } from './hooks';
 export { startPermissionListener } from './listener';
+export { getLocationForegroundCapability } from './location-foreground';
 export { CrossPlatformPermission, resolvePermission } from './cross-platform';
 export type {
   PermissionInput,
@@ -32,6 +35,8 @@ export type {
   PermissionsConfig,
   NotificationsState,
   LocationAccuracyState,
+  LocationForegroundCapability,
+  LocationForegroundPrecision,
   RequestPermissionPayload,
   RequestNotificationsPayload,
   NotificationOption,

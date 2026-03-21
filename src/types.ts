@@ -28,6 +28,18 @@ export interface LocationAccuracyState {
   accuracy: LocationAccuracy | null;
 }
 
+/** Approximate vs precise fix; see `getLocationForegroundCapability`. */
+export type LocationForegroundPrecision = 'approximate' | 'precise' | 'unknown';
+
+/**
+ * Unified foreground location: combined coarse/fine permission access and
+ * precision (Android grants vs iOS `LocationAccuracy`).
+ */
+export interface LocationForegroundCapability {
+  access: PermissionStatus | null;
+  precision: LocationForegroundPrecision;
+}
+
 export interface PermissionsState {
   statuses: Record<string, PermissionStatus>;
   notifications: NotificationsState;

@@ -40,6 +40,15 @@ describe('cross-platform', () => {
       ).toBe('ios.permission.LOCATION_WHEN_IN_USE');
     });
 
+    it('resolves LOCATION_COARSE and LOCATION_FINE to when-in-use on iOS', () => {
+      expect(resolvePermission(CrossPlatformPermission.LOCATION_COARSE)).toBe(
+        'ios.permission.LOCATION_WHEN_IN_USE',
+      );
+      expect(resolvePermission(CrossPlatformPermission.LOCATION_FINE)).toBe(
+        'ios.permission.LOCATION_WHEN_IN_USE',
+      );
+    });
+
     it('resolves CONTACTS_READ to ios.permission.CONTACTS', () => {
       expect(resolvePermission(CrossPlatformPermission.CONTACTS_READ)).toBe(
         'ios.permission.CONTACTS',
@@ -81,6 +90,15 @@ describe('cross-platform', () => {
     it('resolves NOTIFICATIONS to android.permission.POST_NOTIFICATIONS', () => {
       expect(resolvePermission(CrossPlatformPermission.NOTIFICATIONS)).toBe(
         'android.permission.POST_NOTIFICATIONS',
+      );
+    });
+
+    it('resolves LOCATION_COARSE and LOCATION_FINE on Android', () => {
+      expect(resolvePermission(CrossPlatformPermission.LOCATION_COARSE)).toBe(
+        'android.permission.ACCESS_COARSE_LOCATION',
+      );
+      expect(resolvePermission(CrossPlatformPermission.LOCATION_FINE)).toBe(
+        'android.permission.ACCESS_FINE_LOCATION',
       );
     });
 

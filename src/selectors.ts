@@ -1,8 +1,10 @@
 import type { PermissionStatus } from 'react-native-permissions';
 import { SLICE_NAME } from './constants';
 import { resolvePermissionInput } from './cross-platform';
+import { getLocationForegroundCapability } from './location-foreground';
 import type {
   LocationAccuracyState,
+  LocationForegroundCapability,
   NotificationsState,
   PermissionInput,
   PermissionsState,
@@ -30,6 +32,11 @@ export const selectNotifications = (state: RootState): NotificationsState =>
 export const selectLocationAccuracy = (
   state: RootState,
 ): LocationAccuracyState => selectSlice(state).locationAccuracy;
+
+export const selectLocationForegroundCapability = (
+  state: RootState,
+): LocationForegroundCapability =>
+  getLocationForegroundCapability(selectSlice(state));
 
 export const selectListening = (state: RootState): boolean =>
   selectSlice(state).listening;
