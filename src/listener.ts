@@ -1,6 +1,7 @@
 import type { Store } from '@reduxjs/toolkit';
 import { AppState } from 'react-native';
 import type { AppStateStatus } from 'react-native';
+import { assertThunkMiddleware } from './assert-thunk-middleware';
 import { setListening } from './slice';
 import { syncPermissions } from './thunks';
 import type { PermissionsConfig } from './types';
@@ -9,6 +10,8 @@ export function startPermissionListener(
   store: Store,
   config: PermissionsConfig,
 ): () => void {
+  assertThunkMiddleware(store);
+
   let previousState: AppStateStatus = AppState.currentState;
 
   store.dispatch(setListening(true));

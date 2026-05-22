@@ -19,11 +19,21 @@ export type {
 
 export type PermissionInput = Permission | CrossPlatformPermission;
 
+/**
+ * Notification permission state. `status` and `settings` stay `null` until you opt in
+ * via `notifications: true` in `startPermissionListener` / `permissionForegroundSyncSaga`,
+ * or dispatch `checkNotifications` / `requestNotifications`.
+ */
 export interface NotificationsState {
   status: PermissionStatus | null;
   settings: NotificationSettings | null;
 }
 
+/**
+ * iOS location accuracy (full vs reduced). `accuracy` stays `null` until you opt in
+ * via `locationAccuracy: true` in the listener/saga config, or dispatch
+ * `checkLocationAccuracy` / `requestLocationAccuracy`.
+ */
 export interface LocationAccuracyState {
   accuracy: LocationAccuracy | null;
 }

@@ -28,7 +28,7 @@ This means you end up writing the same boilerplate in every project:
 // 1. Add the reducer
 reducer: { [SLICE_NAME]: permissionsReducer }
 
-// 2. Start listening
+// 2. Start listening (from useEffect in your root component — see Quick Start)
 startPermissionListener(store, { permissions: [...], notifications: true })
 
 // 3. Use it anywhere
@@ -70,6 +70,21 @@ These should already be in your project:
 | `react-native-permissions` | >= 4 |
 | `react-redux` | >= 9 |
 | `@reduxjs/toolkit` | >= 2 |
+| `redux-saga` | >= 1.2 (optional — only if you use `permissionForegroundSyncSaga`) |
+
+---
+
+## Store requirements
+
+**Thunk middleware** is required when you use hooks or `startPermissionListener` (the default thunk-based foreground sync). Redux Toolkit's `configureStore` includes it automatically. If you customize middleware, keep the default thunk middleware:
+
+```ts
+middleware: (getDefaultMiddleware) => getDefaultMiddleware(),
+```
+
+Custom `createStore` setups must include `redux-thunk` (or equivalent) in the middleware chain. Otherwise async thunks fail with an opaque Redux error. Call `assertThunkMiddleware(store)` once at startup to get a clear error message.
+
+**redux-saga alternative:** If your store does not use thunk middleware, fork `permissionForegroundSyncSaga(config)` in your root saga instead of `startPermissionListener`. Foreground sync then works without thunks. Hooks and direct thunk dispatch still require thunk middleware.
 
 ---
 
@@ -91,28 +106,57 @@ export const store = configureStore({
 
 ### 2. Start the permission listener
 
-Call this once at app startup (e.g., in your root component or entry file). It runs an initial sync immediately, then re-syncs every time the app returns to the foreground.
+Call this from your root component (not at module top-level — Redux 5 enforces middleware setup before dispatch). It runs an initial sync immediately, then re-syncs every time the app returns to the foreground.
 
-```ts
+**Thunk-based (default):**
+
+```tsx
+import { useEffect } from 'react';
 import {
   CrossPlatformPermission,
   startPermissionListener,
 } from 'react-native-permissions-redux';
+import { store } from './store';
 
-// Start listening — returns a teardown function
-const stopListening = startPermissionListener(store, {
-  permissions: [
-    CrossPlatformPermission.CAMERA,
-    CrossPlatformPermission.PHOTO_LIBRARY,
-    CrossPlatformPermission.LOCATION_COARSE,
-    CrossPlatformPermission.LOCATION_FINE,
-  ],
-  notifications: true,
-  locationAccuracy: true, // iOS 14+; needed for unified foreground `precision`
-});
+function App() {
+  useEffect(() => {
+    const stop = startPermissionListener(store, {
+      permissions: [
+        CrossPlatformPermission.CAMERA,
+        CrossPlatformPermission.PHOTO_LIBRARY,
+        CrossPlatformPermission.LOCATION_COARSE,
+        CrossPlatformPermission.LOCATION_FINE,
+      ],
+      notifications: true,
+      locationAccuracy: true, // iOS 14+; needed for unified foreground `precision`
+    });
+    return stop;
+  }, []);
 
-// Call stopListening() if you ever need to tear down (e.g., logout)
+  return <RootNavigator />;
+}
 ```
+
+**redux-saga (no thunk middleware required for sync):**
+
+```ts
+import { fork } from 'redux-saga/effects';
+import {
+  CrossPlatformPermission,
+  permissionForegroundSyncSaga,
+} from 'react-native-permissions-redux';
+
+export function* rootSaga() {
+  yield fork(
+    permissionForegroundSyncSaga({
+      permissions: [CrossPlatformPermission.CAMERA],
+      notifications: true,
+    }),
+  );
+}
+```
+
+Cancel the forked task on logout to tear down the AppState subscription.
 
 ### 3. Use hooks in your components
 
@@ -221,6 +265,7 @@ const [status, request] = usePermission(CrossPlatformPermission.CAMERA);
 | `LOCATION_FINE` | `LOCATION_WHEN_IN_USE` | `ACCESS_FINE_LOCATION` |
 | `LOCATION_ALWAYS` | `LOCATION_ALWAYS` | `ACCESS_BACKGROUND_LOCATION` |
 | `BLUETOOTH` | `BLUETOOTH` | `BLUETOOTH_CONNECT` |
+| `BLUETOOTH_SCAN` | — | `BLUETOOTH_SCAN` |
 | `MOTION` | `MOTION` | `ACTIVITY_RECOGNITION` |
 | `SPEECH_RECOGNITION` | `SPEECH_RECOGNITION` | — |
 | `MEDIA_LIBRARY` | `MEDIA_LIBRARY` | — |
@@ -234,7 +279,9 @@ const [status, request] = usePermission(CrossPlatformPermission.CAMERA);
 | `SEND_SMS` | — | `SEND_SMS` |
 | `BODY_SENSORS` | — | `BODY_SENSORS` |
 
-A `—` means the permission has no equivalent on that platform. Checking or requesting it will return `'unavailable'` without touching the native module.
+A `—` means the permission has no equivalent on that platform.
+
+**Bluetooth on Android 12+:** `BLUETOOTH` maps to connect (paired devices). `BLUETOOTH_SCAN` maps to BLE discovery. Apps that scan and connect should track **both** in `permissions` (same idea as coarse + fine location). Checking or requesting it will return `'unavailable'` without touching the native module.
 
 Table cells list the **logical** permission name from `react-native-permissions` (e.g. iOS `CAMERA` corresponds to `PERMISSIONS.IOS.CAMERA`). Use `resolvePermission()` if you need the full runtime string.
 
@@ -307,6 +354,18 @@ const [{ access, precision }, refresh] = useLocationForegroundCapability();
 
 ---
 
+## State shape
+
+| Field | `null` meaning |
+|---|---|
+| `selectPermissionStatus(perm)` | Not checked yet (or use `'unavailable'` when the cross-platform key has no mapping on this platform) |
+| `notifications.status` / `settings` | Notifications sync not enabled — set `notifications: true` in listener/saga config, or dispatch `checkNotifications` |
+| `locationAccuracy.accuracy` | Accuracy sync not enabled — set `locationAccuracy: true` on iOS, or dispatch `checkLocationAccuracy` |
+
+These `null` values are expected before the first sync; they do not indicate an error.
+
+---
+
 ## API Reference
 
 Documentation below matches the public exports from `react-native-permissions-redux`.
@@ -335,7 +394,11 @@ Manually control the listening flag. Normally managed by `startPermissionListene
 
 #### `startPermissionListener(store, config) => () => void`
 
-The main integration point. Subscribes to `AppState` and keeps your Redux store in sync.
+Thunk-based integration point. Subscribes to `AppState` and keeps your Redux store in sync. Requires thunk middleware (see [Store requirements](#store-requirements)).
+
+#### `permissionForegroundSyncSaga(config)`
+
+redux-saga integration point. Fork in your root saga. Does not require thunk middleware for foreground sync. Requires `redux-saga` as a peer dependency. Uses the same `config` shape as `startPermissionListener`. Runs an initial sync, then re-syncs on every foreground transition. Cancel the forked task to tear down.
 
 **Parameters:**
 
@@ -409,7 +472,7 @@ const [{ access, precision }, refresh] = useLocationForegroundCapability();
 
 ### Thunks
 
-`configureStore` from Redux Toolkit includes thunk middleware by default. If you customize `middleware`, keep `...getDefaultMiddleware()` (or equivalent) so these async thunks run.
+See [Store requirements](#store-requirements). `configureStore` from Redux Toolkit includes thunk middleware by default. If you customize `middleware`, keep `...getDefaultMiddleware()` (or equivalent) so these async thunks run.
 
 All thunks call the corresponding `react-native-permissions` function and update Redux state on fulfillment. You can dispatch them directly if you prefer thunks over hooks.
 
@@ -504,13 +567,30 @@ await store.dispatch(
 ).unwrap();
 ```
 
-**redux-saga:** await the dispatched thunk, for example:
+**redux-saga (thunk facade):** if your store already has thunk middleware, you can await dispatched thunks:
 
 ```ts
 yield* call(() =>
   store.dispatch(requestPermission({ permission: somePermission })).unwrap(),
 );
 ```
+
+**redux-saga (native, no thunk):** use the core functions and library actions:
+
+```ts
+import { call, put } from 'redux-saga/effects';
+import {
+  checkPermissionCore,
+  statusChecked,
+} from 'react-native-permissions-redux';
+
+function* checkCamera() {
+  const payload = yield call(checkPermissionCore, CrossPlatformPermission.CAMERA);
+  yield put(statusChecked(payload));
+}
+```
+
+For foreground sync without thunks, use `permissionForegroundSyncSaga` (see [Quick Start](#quick-start)).
 
 ### Using selectors directly
 

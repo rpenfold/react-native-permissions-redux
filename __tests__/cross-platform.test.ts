@@ -61,6 +61,9 @@ describe('cross-platform', () => {
       ).toBeNull();
       expect(resolvePermission(CrossPlatformPermission.PHONE_CALL)).toBeNull();
       expect(resolvePermission(CrossPlatformPermission.READ_SMS)).toBeNull();
+      expect(
+        resolvePermission(CrossPlatformPermission.BLUETOOTH_SCAN),
+      ).toBeNull();
     });
   });
 
@@ -99,6 +102,12 @@ describe('cross-platform', () => {
       );
       expect(resolvePermission(CrossPlatformPermission.LOCATION_FINE)).toBe(
         'android.permission.ACCESS_FINE_LOCATION',
+      );
+    });
+
+    it('resolves BLUETOOTH_SCAN on Android', () => {
+      expect(resolvePermission(CrossPlatformPermission.BLUETOOTH_SCAN)).toBe(
+        'android.permission.BLUETOOTH_SCAN',
       );
     });
 

@@ -9,6 +9,7 @@ import type {
 import { useDispatch, useSelector } from 'react-redux';
 import { SLICE_NAME } from './constants';
 import { CrossPlatformPermission } from './cross-platform';
+import { dispatchThunk } from './dispatch-thunk';
 import {
   selectLocationAccuracy,
   selectLocationForegroundCapability,
@@ -47,16 +48,20 @@ export function usePermission(
 
   const doRequest = useCallback(
     async (rationale?: Rationale) => {
-      const result = await dispatch(
+      const result = await dispatchThunk<{ status: PermissionStatus }>(
+        dispatch,
         requestPermission({ permission, rationale }),
-      ).unwrap();
+      );
       return result.status;
     },
     [dispatch, permission],
   );
 
   const doCheck = useCallback(async () => {
-    const result = await dispatch(checkPermission(permission)).unwrap();
+    const result = await dispatchThunk<{ status: PermissionStatus }>(
+      dispatch,
+      checkPermission(permission),
+    );
     return result.status;
   }, [dispatch, permission]);
 
@@ -73,13 +78,13 @@ export function useNotificationPermission(): [
 
   const doRequest = useCallback(
     async (options: NotificationOption[]) => {
-      await dispatch(requestNotifications({ options })).unwrap();
+      await dispatchThunk(dispatch, requestNotifications({ options }));
     },
     [dispatch],
   );
 
   const doCheck = useCallback(async () => {
-    await dispatch(checkNotifications()).unwrap();
+    await dispatchThunk(dispatch, checkNotifications());
   }, [dispatch]);
 
   return [state, doRequest, doCheck];
@@ -95,13 +100,13 @@ export function useLocationAccuracy(): [
 
   const doRequest = useCallback(
     async (purposeKey: string) => {
-      await dispatch(requestLocationAccuracy({ purposeKey })).unwrap();
+      await dispatchThunk(dispatch, requestLocationAccuracy({ purposeKey }));
     },
     [dispatch],
   );
 
   const doCheck = useCallback(async () => {
-    await dispatch(checkLocationAccuracy()).unwrap();
+    await dispatchThunk(dispatch, checkLocationAccuracy());
   }, [dispatch]);
 
   return [state, doRequest, doCheck];
@@ -115,14 +120,15 @@ export function useLocationForegroundCapability(): [
   const capability = useSelector(selectLocationForegroundCapability);
 
   const refresh = useCallback(async () => {
-    await dispatch(
+    await dispatchThunk(
+      dispatch,
       checkMultiplePermissions([
         CrossPlatformPermission.LOCATION_COARSE,
         CrossPlatformPermission.LOCATION_FINE,
       ]),
-    ).unwrap();
+    );
     if (Platform.OS === 'ios') {
-      await dispatch(checkLocationAccuracy()).unwrap();
+      await dispatchThunk(dispatch, checkLocationAccuracy());
     }
   }, [dispatch]);
 

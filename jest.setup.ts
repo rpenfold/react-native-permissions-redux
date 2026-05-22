@@ -48,6 +48,7 @@ jest.mock('react-native-permissions', () => ({
       ACCESS_FINE_LOCATION: 'android.permission.ACCESS_FINE_LOCATION',
       ACTIVITY_RECOGNITION: 'android.permission.ACTIVITY_RECOGNITION',
       BLUETOOTH_CONNECT: 'android.permission.BLUETOOTH_CONNECT',
+      BLUETOOTH_SCAN: 'android.permission.BLUETOOTH_SCAN',
       BODY_SENSORS: 'android.permission.BODY_SENSORS',
       CALL_PHONE: 'android.permission.CALL_PHONE',
       CAMERA: 'android.permission.CAMERA',

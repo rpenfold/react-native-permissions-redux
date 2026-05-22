@@ -25,7 +25,10 @@ export enum CrossPlatformPermission {
   /** Android: `ACCESS_FINE_LOCATION`. iOS: `LOCATION_WHEN_IN_USE`. */
   LOCATION_FINE = 'LOCATION_FINE',
   LOCATION_ALWAYS = 'LOCATION_ALWAYS',
+  /** Android 12+: connect to already-paired BLE devices. For scanning, use `BLUETOOTH_SCAN`. */
   BLUETOOTH = 'BLUETOOTH',
+  /** Android 12+: discover nearby BLE devices. No iOS equivalent. */
+  BLUETOOTH_SCAN = 'BLUETOOTH_SCAN',
   MOTION = 'MOTION',
   SPEECH_RECOGNITION = 'SPEECH_RECOGNITION',
   MEDIA_LIBRARY = 'MEDIA_LIBRARY',
@@ -91,6 +94,7 @@ const ANDROID_MAP: PlatformMap = {
   [CrossPlatformPermission.LOCATION_ALWAYS]:
     PERMISSIONS.ANDROID.ACCESS_BACKGROUND_LOCATION,
   [CrossPlatformPermission.BLUETOOTH]: PERMISSIONS.ANDROID.BLUETOOTH_CONNECT,
+  [CrossPlatformPermission.BLUETOOTH_SCAN]: PERMISSIONS.ANDROID.BLUETOOTH_SCAN,
   [CrossPlatformPermission.MOTION]: PERMISSIONS.ANDROID.ACTIVITY_RECOGNITION,
   [CrossPlatformPermission.NOTIFICATIONS]:
     PERMISSIONS.ANDROID.POST_NOTIFICATIONS,

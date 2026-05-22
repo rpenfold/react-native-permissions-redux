@@ -1,21 +1,25 @@
 import { createAsyncThunk } from '@reduxjs/toolkit';
+import type { Permission } from 'react-native-permissions';
 import {
-  check,
-  checkLocationAccuracy as checkLocationAccuracyRNP,
-  checkMultiple,
-  checkNotifications as checkNotificationsRNP,
-  request,
-  requestLocationAccuracy as requestLocationAccuracyRNP,
-  requestMultiple,
-  requestNotifications as requestNotificationsRNP,
-} from 'react-native-permissions';
-import type { Permission, PermissionStatus } from 'react-native-permissions';
+  locationAccuracyChecked,
+  notificationsChecked,
+  statusChecked,
+  statusesChecked,
+  syncCompleted,
+} from './actions';
 import { SLICE_NAME } from './constants';
+import type { CrossPlatformPermission } from './cross-platform';
 import {
-  type CrossPlatformPermission,
-  UNAVAILABLE_STATUS,
-  resolvePermissionInput,
-} from './cross-platform';
+  checkLocationAccuracyCore,
+  checkMultiplePermissionsCore,
+  checkNotificationsCore,
+  checkPermissionCore,
+  requestLocationAccuracyCore,
+  requestMultiplePermissionsCore,
+  requestNotificationsCore,
+  requestPermissionCore,
+  syncPermissionsCore,
+} from './permissions-core';
 import type {
   PermissionsConfig,
   RequestLocationAccuracyPayload,
@@ -27,146 +31,81 @@ type PermissionInput = Permission | CrossPlatformPermission;
 
 export const checkPermission = createAsyncThunk(
   `${SLICE_NAME}/checkPermission`,
-  async (permission: PermissionInput) => {
-    const result = resolvePermissionInput(permission);
-    if (result.unavailable) {
-      return { permission, status: UNAVAILABLE_STATUS };
-    }
-    const status = await check(result.resolved);
-    return { permission: result.resolved as string, status };
+  async (permission: PermissionInput, { dispatch }) => {
+    const payload = await checkPermissionCore(permission);
+    dispatch(statusChecked(payload));
+    return payload;
   },
 );
 
 export const requestPermission = createAsyncThunk(
   `${SLICE_NAME}/requestPermission`,
-  async ({ permission, rationale }: RequestPermissionPayload) => {
-    const result = resolvePermissionInput(permission);
-    if (result.unavailable) {
-      return { permission, status: UNAVAILABLE_STATUS };
-    }
-    const status = await request(result.resolved, rationale);
-    return { permission: result.resolved as string, status };
+  async (arg: RequestPermissionPayload, { dispatch }) => {
+    const payload = await requestPermissionCore(arg);
+    dispatch(statusChecked(payload));
+    return payload;
   },
 );
 
 export const checkMultiplePermissions = createAsyncThunk(
   `${SLICE_NAME}/checkMultiplePermissions`,
-  async (permissions: PermissionInput[]) => {
-    const statuses: Record<string, PermissionStatus> = {};
-    const toCheck: Permission[] = [];
-
-    for (const perm of permissions) {
-      const result = resolvePermissionInput(perm);
-      if (result.unavailable) {
-        statuses[perm] = UNAVAILABLE_STATUS;
-      } else {
-        toCheck.push(result.resolved);
-      }
-    }
-
-    if (toCheck.length > 0) {
-      const nativeStatuses = await checkMultiple(toCheck);
-      Object.assign(statuses, nativeStatuses);
-    }
-
-    return statuses;
+  async (permissions: PermissionInput[], { dispatch }) => {
+    const payload = await checkMultiplePermissionsCore(permissions);
+    dispatch(statusesChecked(payload));
+    return payload;
   },
 );
 
 export const requestMultiplePermissions = createAsyncThunk(
   `${SLICE_NAME}/requestMultiplePermissions`,
-  async (permissions: PermissionInput[]) => {
-    const statuses: Record<string, PermissionStatus> = {};
-    const toRequest: Permission[] = [];
-
-    for (const perm of permissions) {
-      const result = resolvePermissionInput(perm);
-      if (result.unavailable) {
-        statuses[perm] = UNAVAILABLE_STATUS;
-      } else {
-        toRequest.push(result.resolved);
-      }
-    }
-
-    if (toRequest.length > 0) {
-      const nativeStatuses = await requestMultiple(toRequest);
-      Object.assign(statuses, nativeStatuses);
-    }
-
-    return statuses;
+  async (permissions: PermissionInput[], { dispatch }) => {
+    const payload = await requestMultiplePermissionsCore(permissions);
+    dispatch(statusesChecked(payload));
+    return payload;
   },
 );
 
 export const checkNotifications = createAsyncThunk(
   `${SLICE_NAME}/checkNotifications`,
-  async () => {
-    const result = await checkNotificationsRNP();
-    return result;
+  async (_, { dispatch }) => {
+    const payload = await checkNotificationsCore();
+    dispatch(notificationsChecked(payload));
+    return payload;
   },
 );
 
 export const requestNotifications = createAsyncThunk(
   `${SLICE_NAME}/requestNotifications`,
-  async ({ options }: RequestNotificationsPayload) => {
-    const result = await requestNotificationsRNP(options);
-    return result;
+  async (arg: RequestNotificationsPayload, { dispatch }) => {
+    const payload = await requestNotificationsCore(arg);
+    dispatch(notificationsChecked(payload));
+    return payload;
   },
 );
 
 export const checkLocationAccuracy = createAsyncThunk(
   `${SLICE_NAME}/checkLocationAccuracy`,
-  async () => {
-    const accuracy = await checkLocationAccuracyRNP();
-    return accuracy;
+  async (_, { dispatch }) => {
+    const payload = await checkLocationAccuracyCore();
+    dispatch(locationAccuracyChecked(payload));
+    return payload;
   },
 );
 
 export const requestLocationAccuracy = createAsyncThunk(
   `${SLICE_NAME}/requestLocationAccuracy`,
-  async ({ purposeKey }: RequestLocationAccuracyPayload) => {
-    const accuracy = await requestLocationAccuracyRNP({ purposeKey });
-    return accuracy;
+  async (arg: RequestLocationAccuracyPayload, { dispatch }) => {
+    const payload = await requestLocationAccuracyCore(arg);
+    dispatch(locationAccuracyChecked(payload));
+    return payload;
   },
 );
 
 export const syncPermissions = createAsyncThunk(
   `${SLICE_NAME}/syncPermissions`,
-  async (config: PermissionsConfig) => {
-    const results: {
-      statuses?: Record<string, PermissionStatus>;
-      notifications?: { status: PermissionStatus; settings: unknown };
-      locationAccuracy?: string;
-    } = {};
-
-    if (config.permissions && config.permissions.length > 0) {
-      const statuses: Record<string, PermissionStatus> = {};
-      const toCheck: Permission[] = [];
-
-      for (const perm of config.permissions) {
-        const result = resolvePermissionInput(perm);
-        if (result.unavailable) {
-          statuses[perm] = UNAVAILABLE_STATUS;
-        } else {
-          toCheck.push(result.resolved);
-        }
-      }
-
-      if (toCheck.length > 0) {
-        const nativeStatuses = await checkMultiple(toCheck);
-        Object.assign(statuses, nativeStatuses);
-      }
-
-      results.statuses = statuses;
-    }
-
-    if (config.notifications) {
-      results.notifications = await checkNotificationsRNP();
-    }
-
-    if (config.locationAccuracy) {
-      results.locationAccuracy = await checkLocationAccuracyRNP();
-    }
-
-    return results;
+  async (config: PermissionsConfig, { dispatch }) => {
+    const payload = await syncPermissionsCore(config);
+    dispatch(syncCompleted(payload));
+    return payload;
   },
 );

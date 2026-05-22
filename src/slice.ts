@@ -3,18 +3,14 @@ import type {
   LocationAccuracy,
   NotificationSettings,
 } from 'react-native-permissions';
-import { SLICE_NAME } from './constants';
 import {
-  checkLocationAccuracy,
-  checkMultiplePermissions,
-  checkNotifications,
-  checkPermission,
-  requestLocationAccuracy,
-  requestMultiplePermissions,
-  requestNotifications,
-  requestPermission,
-  syncPermissions,
-} from './thunks';
+  locationAccuracyChecked,
+  notificationsChecked,
+  statusChecked,
+  statusesChecked,
+  syncCompleted,
+} from './actions';
+import { SLICE_NAME } from './constants';
 import type { PermissionsState } from './types';
 
 const initialState: PermissionsState = {
@@ -41,35 +37,21 @@ const permissionsSlice = createSlice({
   },
   extraReducers: (builder) => {
     builder
-      .addCase(checkPermission.fulfilled, (state, action) => {
+      .addCase(statusChecked, (state, action) => {
         state.statuses[action.payload.permission] = action.payload.status;
       })
-      .addCase(requestPermission.fulfilled, (state, action) => {
-        state.statuses[action.payload.permission] = action.payload.status;
-      })
-      .addCase(checkMultiplePermissions.fulfilled, (state, action) => {
+      .addCase(statusesChecked, (state, action) => {
         Object.assign(state.statuses, action.payload);
       })
-      .addCase(requestMultiplePermissions.fulfilled, (state, action) => {
-        Object.assign(state.statuses, action.payload);
-      })
-      .addCase(checkNotifications.fulfilled, (state, action) => {
+      .addCase(notificationsChecked, (state, action) => {
         state.notifications.status = action.payload.status;
         state.notifications.settings = action.payload
           .settings as NotificationSettings;
       })
-      .addCase(requestNotifications.fulfilled, (state, action) => {
-        state.notifications.status = action.payload.status;
-        state.notifications.settings = action.payload
-          .settings as NotificationSettings;
-      })
-      .addCase(checkLocationAccuracy.fulfilled, (state, action) => {
+      .addCase(locationAccuracyChecked, (state, action) => {
         state.locationAccuracy.accuracy = action.payload as LocationAccuracy;
       })
-      .addCase(requestLocationAccuracy.fulfilled, (state, action) => {
-        state.locationAccuracy.accuracy = action.payload as LocationAccuracy;
-      })
-      .addCase(syncPermissions.fulfilled, (state, action) => {
+      .addCase(syncCompleted, (state, action) => {
         if (action.payload.statuses) {
           Object.assign(state.statuses, action.payload.statuses);
         }
@@ -87,5 +69,12 @@ const permissionsSlice = createSlice({
   },
 });
 
+export {
+  statusChecked,
+  statusesChecked,
+  notificationsChecked,
+  locationAccuracyChecked,
+  syncCompleted,
+} from './actions';
 export const { reset, setListening } = permissionsSlice.actions;
 export const permissionsReducer = permissionsSlice.reducer;
