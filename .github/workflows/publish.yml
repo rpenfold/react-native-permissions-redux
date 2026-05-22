@@ -32,7 +32,15 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Verify NPM_TOKEN
+        run: |
+          if [ -z "${{ secrets.NPM_TOKEN }}" ]; then
+            echo "::error::NPM_TOKEN is not set. Add an npm automation token under Settings → Secrets and variables → Actions, then re-run this workflow."
+            exit 1
+          fi
+
       - name: Publish
-        run: npm publish --provenance --access public
+        # --ignore-scripts: skip "prepare" (husky) on the publish machine
+        run: npm publish --provenance --access public --ignore-scripts
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
