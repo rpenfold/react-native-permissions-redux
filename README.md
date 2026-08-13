@@ -41,7 +41,8 @@ When your app returns to the foreground, all tracked permissions are automatical
 
 ## Features
 
-- **Automatic foreground sync** — Uses `AppState` to re-check permissions whenever your app becomes active. Your users toggle a permission in Settings, come back, and everything Just Works.
+- **Automatic foreground sync** — Uses `AppState` to re-check permissions whenever your app becomes active. Your users toggle a permission in Settings, come back, and everything Just Works. Transient native errors are recorded in `lastError` and do not kill the listener.
+- **Dynamic tracked set** — Add or remove permissions after startup (`trackPermissions`) without tearing down the AppState subscription — useful with dynamic Redux modules.
 - **Atomic state updates** — Every `check` and `request` call updates Redux state on completion. No manual dispatching, no stale reads.
 - **Purpose-built hooks** — `usePermission`, `useNotificationPermission`, and `useLocationAccuracy` return `[state, request, check]`-style tuples. **`useLocationForegroundCapability`** returns `[capability, refresh]` for a unified foreground location view (coarse/fine + iOS accuracy).
 - **Cross-platform permission abstraction** — Use `CrossPlatformPermission.CAMERA` instead of `PERMISSIONS.IOS.CAMERA` / `PERMISSIONS.ANDROID.CAMERA`. Write once, resolves to the right native permission at runtime. Falls back to `'unavailable'` when there's no equivalent on the current platform.
@@ -161,7 +162,11 @@ Cancel the forked task on logout to tear down the AppState subscription.
 ### 3. Use hooks in your components
 
 ```tsx
-import { CrossPlatformPermission, usePermission } from 'react-native-permissions-redux';
+import {
+  CrossPlatformPermission,
+  openSettings,
+  usePermission,
+} from 'react-native-permissions-redux';
 
 function CameraButton() {
   const [status, requestCamera] = usePermission(CrossPlatformPermission.CAMERA);
@@ -171,7 +176,12 @@ function CameraButton() {
   }
 
   if (status === 'blocked') {
-    return <Text>Camera access denied. Please enable it in Settings.</Text>;
+    return (
+      <Button
+        title="Open Settings"
+        onPress={() => openSettings()}
+      />
+    );
   }
 
   return (
@@ -281,6 +291,8 @@ const [status, request] = usePermission(CrossPlatformPermission.CAMERA);
 
 A `—` means the permission has no equivalent on that platform.
 
+**Notifications:** `CrossPlatformPermission.NOTIFICATIONS` is Android-only and maps to `POST_NOTIFICATIONS` on **react-native-permissions v4**. That constant was removed in v5, so the enum resolves to `'unavailable'` and logs a warning. For a cross-platform notification status (iOS + Android, including pre-13), use [`useNotificationPermission`](#usenotificationpermission) / `checkNotifications` / `requestNotifications` — a different API that writes `state.notifications`, not `state.statuses`.
+
 **Bluetooth on Android 12+:** `BLUETOOTH` maps to connect (paired devices). `BLUETOOTH_SCAN` maps to BLE discovery. Apps that scan and connect should track **both** in `permissions` (same idea as coarse + fine location). Checking or requesting it will return `'unavailable'` without touching the native module.
 
 Table cells list the **logical** permission name from `react-native-permissions` (e.g. iOS `CAMERA` corresponds to `PERMISSIONS.IOS.CAMERA`). Use `resolvePermission()` if you need the full runtime string.
@@ -361,8 +373,9 @@ const [{ access, precision }, refresh] = useLocationForegroundCapability();
 | `selectPermissionStatus(perm)` | Not checked yet (or use `'unavailable'` when the cross-platform key has no mapping on this platform) |
 | `notifications.status` / `settings` | Notifications sync not enabled — set `notifications: true` in listener/saga config, or dispatch `checkNotifications` |
 | `locationAccuracy.accuracy` | Accuracy sync not enabled — set `locationAccuracy: true` on iOS, or dispatch `checkLocationAccuracy` |
+| `selectLastError` | No native call has failed since the last successful update |
 
-These `null` values are expected before the first sync; they do not indicate an error.
+These `null` values are expected before the first sync; they do not indicate an error. A failed `check` / `request` / sync sets `lastError: { message }` and does **not** invent a permission status.
 
 ---
 
@@ -390,6 +403,10 @@ Resets all permission state back to initial values (empty statuses, null notific
 
 Manually control the listening flag. Normally managed by `startPermissionListener` — you shouldn't need this unless you're building a custom listener.
 
+#### `trackPermissions(permissions)` / `untrackPermissions(permissions)`
+
+Add or remove entries in the tracked set used by foreground sync. Does not tear down the AppState listener. Same for `setNotificationsTracking(boolean)` and `setLocationAccuracyTracking(boolean)`.
+
 ### Listener
 
 #### `startPermissionListener(store, config) => () => void`
@@ -407,13 +424,25 @@ redux-saga integration point. Fork in your root saga. Does not require thunk mid
   - `permissions?` — `PermissionInput[]` (`CrossPlatformPermission` and/or native `Permission` strings) to re-check on sync
   - `notifications?` — `boolean` — whether to check notification status
   - `locationAccuracy?` — `boolean` — whether to check iOS location accuracy (`checkLocationAccuracy`)
+  - `syncOn?` — `'nonActiveToActive'` (default) or `'backgroundToActive'`. The default treats control-centre peeks and permission dialogs (`inactive → active`) like a return from Settings. Use `'backgroundToActive'` to skip those.
+  - `debounceMs?` — debounce AppState-triggered syncs. The initial sync is never debounced.
+
+The tracked permission set is stored on the slice. After the listener/saga is running, dispatch `trackPermissions` / `untrackPermissions` / `setNotificationsTracking` / `setLocationAccuracyTracking` to add modules at runtime without tearing down the AppState subscription. The next sync (and any in-flight coalesced retry) reads the latest set from the store.
+
+Overlapping foreground transitions are coalesced: one sync runs at a time, and at most one extra sync runs if a transition arrived while busy. A slower older `syncPermissions` cannot overwrite a newer result.
 
 **Returns:** a teardown function that unsubscribes from `AppState` and sets `listening` to `false`.
 
 **Behavior:**
-1. Sets `listening` to `true`
-2. Dispatches `syncPermissions(config)` immediately
-3. On every `AppState` transition from background/inactive to `'active'`, dispatches `syncPermissions(config)` again
+1. Writes the config into `state.permissions.tracked` and sets `listening` to `true`
+2. Dispatches `syncPermissions` immediately (from the tracked set)
+3. On every configured `AppState` transition to `'active'`, syncs again
+
+If a native `check` fails, `lastError` is set and **foreground listening continues**. One rejected call inside a bulk sync does not skip the other configured checks.
+
+#### `openSettings()` / `openPhotoPicker()`
+
+Re-exported from `react-native-permissions`. `blocked` can only be cleared in system Settings (or, for limited photo library on iOS, `openPhotoPicker`). This library does not call them for you.
 
 ### Hooks
 
@@ -442,7 +471,7 @@ const [state, request, check] = useNotificationPermission();
 | Return | Type | Description |
 |---|---|---|
 | `state` | `NotificationsState` | `{ status, settings }` |
-| `request` | `(options: NotificationOption[]) => Promise<void>` | Requests notification permissions |
+| `request` | `(options: NotificationOption[], rationale?) => Promise<void>` | Requests notification permissions (`rationale` is Android / RNP v5) |
 | `check` | `() => Promise<void>` | Checks notification permissions |
 
 #### `useLocationAccuracy()`
@@ -483,7 +512,7 @@ All thunks call the corresponding `react-native-permissions` function and update
 | `checkMultiplePermissions` | `PermissionInput[]` | `RNP.checkMultiple()` |
 | `requestMultiplePermissions` | `PermissionInput[]` | `RNP.requestMultiple()` |
 | `checkNotifications` | — | `RNP.checkNotifications()` |
-| `requestNotifications` | `{ options }` | `RNP.requestNotifications()` |
+| `requestNotifications` | `{ options, rationale? }` | `RNP.requestNotifications()` |
 | `checkLocationAccuracy` | — | `RNP.checkLocationAccuracy()` |
 | `requestLocationAccuracy` | `{ purposeKey }` | `RNP.requestLocationAccuracy()` |
 | `syncPermissions` | `PermissionsConfig` | Bulk re-check of all configured items |
@@ -501,6 +530,8 @@ All selectors expect the root state to have the permissions slice mounted at `[S
 | `selectLocationForegroundCapability` | `{ access, precision }` | Unified foreground location ([section](#foreground-location-unified)) |
 | `selectListening` | `boolean` | Whether the AppState listener is active |
 | `selectLastSyncedAt` | `string \| null` | ISO timestamp of the last successful sync |
+| `selectLastError` | `{ message } \| null` | Last native-call failure; cleared on the next successful update |
+| `selectTrackedConfig` | `PermissionsConfig` | Permissions currently re-checked on foreground sync |
 
 ### Types & imports
 
@@ -512,6 +543,9 @@ import {
   resolvePermission,
   getLocationForegroundCapability,
   selectLocationForegroundCapability,
+  openSettings,
+  openPhotoPicker,
+  trackPermissions,
 } from 'react-native-permissions-redux';
 
 import type {
@@ -532,6 +566,9 @@ import type {
   RequestPermissionPayload,
   RequestNotificationsPayload,
   RequestLocationAccuracyPayload,
+  PermissionError,
+  TrackedPermissions,
+  ForegroundSyncOn,
 } from 'react-native-permissions-redux';
 ```
 

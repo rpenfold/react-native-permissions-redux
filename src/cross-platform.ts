@@ -45,6 +45,26 @@ export enum CrossPlatformPermission {
 
 type PlatformMap = Partial<Record<CrossPlatformPermission, Permission | null>>;
 
+/** RNP v5 removed `PERMISSIONS.ANDROID.POST_NOTIFICATIONS`. */
+function androidPermission(key: string): Permission | null {
+  const value = (PERMISSIONS.ANDROID as Record<string, Permission | undefined>)[
+    key
+  ];
+  return value ?? null;
+}
+
+function warnNotificationsUnmapped(): void {
+  if (process.env.NODE_ENV === 'production') {
+    return;
+  }
+  console.warn(
+    '[react-native-permissions-redux] CrossPlatformPermission.NOTIFICATIONS ' +
+      'could not be resolved on Android. react-native-permissions v5 removed ' +
+      'PERMISSIONS.ANDROID.POST_NOTIFICATIONS. Use useNotificationPermission() ' +
+      'or checkNotifications / requestNotifications instead.',
+  );
+}
+
 const IOS_MAP: PlatformMap = {
   [CrossPlatformPermission.CAMERA]: PERMISSIONS.IOS.CAMERA,
   [CrossPlatformPermission.MICROPHONE]: PERMISSIONS.IOS.MICROPHONE,
@@ -96,8 +116,6 @@ const ANDROID_MAP: PlatformMap = {
   [CrossPlatformPermission.BLUETOOTH]: PERMISSIONS.ANDROID.BLUETOOTH_CONNECT,
   [CrossPlatformPermission.BLUETOOTH_SCAN]: PERMISSIONS.ANDROID.BLUETOOTH_SCAN,
   [CrossPlatformPermission.MOTION]: PERMISSIONS.ANDROID.ACTIVITY_RECOGNITION,
-  [CrossPlatformPermission.NOTIFICATIONS]:
-    PERMISSIONS.ANDROID.POST_NOTIFICATIONS,
   [CrossPlatformPermission.PHONE_CALL]: PERMISSIONS.ANDROID.CALL_PHONE,
   [CrossPlatformPermission.READ_SMS]: PERMISSIONS.ANDROID.READ_SMS,
   [CrossPlatformPermission.SEND_SMS]: PERMISSIONS.ANDROID.SEND_SMS,
@@ -116,6 +134,16 @@ const PLATFORM_MAPS: Record<string, PlatformMap> = {
 export function resolvePermission(
   permission: CrossPlatformPermission,
 ): Permission | null {
+  if (
+    permission === CrossPlatformPermission.NOTIFICATIONS &&
+    Platform.OS === 'android'
+  ) {
+    const resolved = androidPermission('POST_NOTIFICATIONS');
+    if (resolved === null) {
+      warnNotificationsUnmapped();
+    }
+    return resolved;
+  }
   const map = PLATFORM_MAPS[Platform.OS];
   if (!map) return null;
   return map[permission] ?? null;

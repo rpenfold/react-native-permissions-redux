@@ -21,7 +21,7 @@ jobs:
           node-version: ${{ matrix.node-version }}
           cache: npm
 
-      - run: npm ci --legacy-peer-deps
+      - run: npm ci
 
       - name: Lint
         run: npx biome check .
@@ -30,4 +30,25 @@ jobs:
         run: npm test
 
       - name: Build
+        run: npm run build
+
+  rnp-v5:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Install react-native-permissions v5
+        run: npm install --legacy-peer-deps react-native-permissions@5
+
+      - name: Test against RNP v5
+        run: npm test
+
+      - name: Typecheck against RNP v5
         run: npm run build

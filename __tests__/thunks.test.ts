@@ -120,7 +120,28 @@ describe('thunks', () => {
 
     await store.dispatch(requestNotifications({ options: ['alert', 'badge'] }));
 
-    expect(RNP.requestNotifications).toHaveBeenCalledWith(['alert', 'badge']);
+    expect(RNP.requestNotifications).toHaveBeenCalledWith(
+      ['alert', 'badge'],
+      undefined,
+    );
+  });
+
+  it('requestNotifications forwards rationale', async () => {
+    RNP.requestNotifications.mockResolvedValue({
+      status: 'granted',
+      settings: { alert: true },
+    });
+    const store = createStore();
+    const rationale = { title: 'Notifications', message: 'Please' };
+
+    await store.dispatch(
+      requestNotifications({
+        options: ['alert'],
+        rationale: rationale as never,
+      }),
+    );
+
+    expect(RNP.requestNotifications).toHaveBeenCalledWith(['alert'], rationale);
   });
 
   it('checkLocationAccuracy calls RNP.checkLocationAccuracy', async () => {
@@ -176,5 +197,55 @@ describe('thunks', () => {
     expect(RNP.checkMultiple).not.toHaveBeenCalled();
     expect(RNP.checkNotifications).not.toHaveBeenCalled();
     expect(RNP.checkLocationAccuracy).not.toHaveBeenCalled();
+  });
+
+  it('syncPermissions isolates a failed checkMultiple and still checks notifications', async () => {
+    RNP.checkMultiple.mockRejectedValue(new Error('camera failed'));
+    RNP.checkNotifications.mockResolvedValue({
+      status: 'granted',
+      settings: {},
+    });
+    const store = createStore();
+
+    await store.dispatch(
+      syncPermissions({
+        permissions: ['ios.permission.CAMERA'] as never,
+        notifications: true,
+      }),
+    );
+
+    const state = store.getState()[SLICE_NAME];
+    expect(state.notifications.status).toBe('granted');
+    expect(state.lastError?.message).toBe('camera failed');
+  });
+
+  it('ignores a stale sync result when a newer sync finishes first', async () => {
+    let resolveFirst: (value: Record<string, string>) => void = () => {};
+    RNP.checkMultiple.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveFirst = resolve;
+        }),
+    );
+    RNP.checkMultiple.mockResolvedValueOnce({
+      'ios.permission.CAMERA': 'granted',
+    });
+    const store = createStore();
+    const config = { permissions: ['ios.permission.CAMERA'] as never };
+
+    const first = store.dispatch(syncPermissions(config));
+    const second = store.dispatch(syncPermissions(config));
+    await second;
+
+    expect(store.getState()[SLICE_NAME].statuses['ios.permission.CAMERA']).toBe(
+      'granted',
+    );
+
+    resolveFirst({ 'ios.permission.CAMERA': 'denied' });
+    await first;
+
+    expect(store.getState()[SLICE_NAME].statuses['ios.permission.CAMERA']).toBe(
+      'granted',
+    );
   });
 });

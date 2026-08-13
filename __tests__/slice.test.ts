@@ -1,6 +1,14 @@
 import { configureStore } from '@reduxjs/toolkit';
+import { syncFailed } from '../src/actions';
 import { SLICE_NAME } from '../src/constants';
-import { permissionsReducer, reset, setListening } from '../src/slice';
+import {
+  permissionsReducer,
+  reset,
+  setListening,
+  setNotificationsTracking,
+  trackPermissions,
+  untrackPermissions,
+} from '../src/slice';
 import {
   checkLocationAccuracy,
   checkMultiplePermissions,
@@ -37,6 +45,12 @@ describe('permissionsSlice', () => {
     expect(state.locationAccuracy).toEqual({ accuracy: null });
     expect(state.listening).toBe(false);
     expect(state.lastSyncedAt).toBeNull();
+    expect(state.lastError).toBeNull();
+    expect(state.tracked).toEqual({
+      permissions: [],
+      notifications: false,
+      locationAccuracy: false,
+    });
   });
 
   it('handles reset action', () => {
@@ -136,5 +150,43 @@ describe('permissionsSlice', () => {
     expect(state.notifications.status).toBe('denied');
     expect(state.locationAccuracy.accuracy).toBe('reduced');
     expect(state.lastSyncedAt).not.toBeNull();
+    expect(state.lastError).toBeNull();
+  });
+
+  it('records lastError on syncFailed and clears it on a successful check', async () => {
+    const store = createStore();
+    store.dispatch(syncFailed({ message: 'native boom' }));
+    expect(store.getState()[SLICE_NAME].lastError).toEqual({
+      message: 'native boom',
+    });
+
+    check.mockResolvedValue('granted');
+    await store.dispatch(checkPermission('ios.permission.CAMERA' as never));
+    expect(store.getState()[SLICE_NAME].lastError).toBeNull();
+  });
+
+  it('records lastError when a thunk is rejected', async () => {
+    const store = createStore();
+    check.mockRejectedValue(new Error('check failed'));
+
+    await store.dispatch(checkPermission('ios.permission.CAMERA' as never));
+    expect(store.getState()[SLICE_NAME].lastError?.message).toBe(
+      'check failed',
+    );
+  });
+
+  it('trackPermissions and untrackPermissions update the tracked set', () => {
+    const store = createStore();
+    store.dispatch(trackPermissions(['ios.permission.CAMERA'] as never));
+    store.dispatch(trackPermissions(['ios.permission.CAMERA'] as never));
+    store.dispatch(setNotificationsTracking(true));
+    expect(store.getState()[SLICE_NAME].tracked).toEqual({
+      permissions: ['ios.permission.CAMERA'],
+      notifications: true,
+      locationAccuracy: false,
+    });
+
+    store.dispatch(untrackPermissions(['ios.permission.CAMERA'] as never));
+    expect(store.getState()[SLICE_NAME].tracked.permissions).toEqual([]);
   });
 });

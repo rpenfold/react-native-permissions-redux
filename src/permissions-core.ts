@@ -10,16 +10,20 @@ import {
 } from 'react-native-permissions';
 import type {
   LocationAccuracy,
+  NotificationOption,
   NotificationSettings,
   Permission,
   PermissionStatus,
+  Rationale,
 } from 'react-native-permissions';
 import {
   type CrossPlatformPermission,
   UNAVAILABLE_STATUS,
   resolvePermissionInput,
 } from './cross-platform';
+import { errorMessage } from './error';
 import type {
+  PermissionError,
   PermissionsConfig,
   RequestLocationAccuracyPayload,
   RequestNotificationsPayload,
@@ -42,6 +46,7 @@ export type SyncPermissionsResult = {
   statuses?: Record<string, PermissionStatus>;
   notifications?: NotificationsCheckedPayload;
   locationAccuracy?: LocationAccuracy;
+  error?: PermissionError;
 };
 
 export async function checkPermissionCore(
@@ -119,8 +124,13 @@ export async function checkNotificationsCore(): Promise<NotificationsCheckedPayl
 
 export async function requestNotificationsCore({
   options,
+  rationale,
 }: RequestNotificationsPayload): Promise<NotificationsCheckedPayload> {
-  return requestNotificationsRNP(options);
+  const requestWithRationale = requestNotificationsRNP as (
+    options: NotificationOption[],
+    rationale?: Rationale,
+  ) => ReturnType<typeof requestNotificationsRNP>;
+  return requestWithRationale(options, rationale);
 }
 
 export async function checkLocationAccuracyCore(): Promise<LocationAccuracy> {
@@ -133,21 +143,46 @@ export async function requestLocationAccuracyCore({
   return requestLocationAccuracyRNP({ purposeKey });
 }
 
+function collectError(errors: string[], error: unknown): void {
+  errors.push(errorMessage(error));
+}
+
+/**
+ * Re-checks configured items. Each native call is isolated so one failure
+ * does not skip the rest. Partial results are returned with `error` set.
+ */
 export async function syncPermissionsCore(
   config: PermissionsConfig,
 ): Promise<SyncPermissionsResult> {
   const results: SyncPermissionsResult = {};
+  const errors: string[] = [];
 
   if (config.permissions && config.permissions.length > 0) {
-    results.statuses = await checkMultiplePermissionsCore(config.permissions);
+    try {
+      results.statuses = await checkMultiplePermissionsCore(config.permissions);
+    } catch (error) {
+      collectError(errors, error);
+    }
   }
 
   if (config.notifications) {
-    results.notifications = await checkNotificationsCore();
+    try {
+      results.notifications = await checkNotificationsCore();
+    } catch (error) {
+      collectError(errors, error);
+    }
   }
 
   if (config.locationAccuracy) {
-    results.locationAccuracy = await checkLocationAccuracyCore();
+    try {
+      results.locationAccuracy = await checkLocationAccuracyCore();
+    } catch (error) {
+      collectError(errors, error);
+    }
+  }
+
+  if (errors.length > 0) {
+    results.error = { message: errors.join('; ') };
   }
 
   return results;

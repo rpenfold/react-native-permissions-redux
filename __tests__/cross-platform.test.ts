@@ -96,6 +96,26 @@ describe('cross-platform', () => {
       );
     });
 
+    it('warns and returns null when POST_NOTIFICATIONS is missing (RNP v5)', () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      const android = RNP.PERMISSIONS.ANDROID as Record<
+        string,
+        string | undefined
+      >;
+      const original = android.POST_NOTIFICATIONS;
+      android.POST_NOTIFICATIONS = undefined;
+
+      expect(
+        resolvePermission(CrossPlatformPermission.NOTIFICATIONS),
+      ).toBeNull();
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('useNotificationPermission'),
+      );
+
+      android.POST_NOTIFICATIONS = original;
+      warn.mockRestore();
+    });
+
     it('resolves LOCATION_COARSE and LOCATION_FINE on Android', () => {
       expect(resolvePermission(CrossPlatformPermission.LOCATION_COARSE)).toBe(
         'android.permission.ACCESS_COARSE_LOCATION',

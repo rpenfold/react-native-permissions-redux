@@ -16,6 +16,12 @@ function baseState(
     locationAccuracy: { accuracy: null },
     listening: false,
     lastSyncedAt: null,
+    lastError: null,
+    tracked: {
+      permissions: [],
+      notifications: false,
+      locationAccuracy: false,
+    },
     ...overrides,
   };
 }

@@ -50,18 +50,43 @@ export interface LocationForegroundCapability {
   precision: LocationForegroundPrecision;
 }
 
+/** Serializable native-call failure. `null` status still means "not checked yet". */
+export interface PermissionError {
+  message: string;
+}
+
+/** Permissions re-checked on each foreground sync. */
+export interface TrackedPermissions {
+  permissions: PermissionInput[];
+  notifications: boolean;
+  locationAccuracy: boolean;
+}
+
+/**
+ * Which AppState transition triggers a foreground re-sync.
+ * Default `nonActiveToActive` treats control-centre / permission-dialog
+ * `inactive → active` the same as returning from Settings.
+ */
+export type ForegroundSyncOn = 'nonActiveToActive' | 'backgroundToActive';
+
 export interface PermissionsState {
   statuses: Record<string, PermissionStatus>;
   notifications: NotificationsState;
   locationAccuracy: LocationAccuracyState;
   listening: boolean;
   lastSyncedAt: string | null;
+  lastError: PermissionError | null;
+  tracked: TrackedPermissions;
 }
 
 export interface PermissionsConfig {
   permissions?: PermissionInput[];
   notifications?: boolean;
   locationAccuracy?: boolean;
+  /** @default 'nonActiveToActive' */
+  syncOn?: ForegroundSyncOn;
+  /** Debounce AppState-triggered syncs. Initial sync is never debounced. */
+  debounceMs?: number;
 }
 
 export interface RequestPermissionPayload {

@@ -70,15 +70,21 @@ export function usePermission(
 
 export function useNotificationPermission(): [
   state: NotificationsState,
-  request: (options: NotificationOption[]) => Promise<void>,
+  request: (
+    options: NotificationOption[],
+    rationale?: Rationale,
+  ) => Promise<void>,
   check: () => Promise<void>,
 ] {
   const dispatch = useDispatch<AppDispatch>();
   const state = useSelector(selectNotifications);
 
   const doRequest = useCallback(
-    async (options: NotificationOption[]) => {
-      await dispatchThunk(dispatch, requestNotifications({ options }));
+    async (options: NotificationOption[], rationale?: Rationale) => {
+      await dispatchThunk(
+        dispatch,
+        requestNotifications({ options, rationale }),
+      );
     },
     [dispatch],
   );

@@ -1,11 +1,14 @@
 import { SLICE_NAME } from '../src/constants';
 import {
   selectAllStatuses,
+  selectLastError,
   selectLastSyncedAt,
   selectListening,
   selectLocationAccuracy,
+  selectLocationForegroundCapability,
   selectNotifications,
   selectPermissionStatus,
+  selectTrackedConfig,
 } from '../src/selectors';
 import type { PermissionsState } from '../src/types';
 
@@ -16,6 +19,12 @@ function makeState(overrides: Partial<PermissionsState> = {}) {
     locationAccuracy: { accuracy: null },
     listening: false,
     lastSyncedAt: null,
+    lastError: null,
+    tracked: {
+      permissions: [],
+      notifications: false,
+      locationAccuracy: false,
+    },
     ...overrides,
   };
   return { [SLICE_NAME]: base };
@@ -71,5 +80,37 @@ describe('selectors', () => {
     const ts = '2026-01-01T00:00:00.000Z';
     expect(selectLastSyncedAt(makeState({ lastSyncedAt: ts }))).toBe(ts);
     expect(selectLastSyncedAt(makeState())).toBeNull();
+  });
+
+  it('selectLastError returns error payload', () => {
+    expect(selectLastError(makeState())).toBeNull();
+    expect(
+      selectLastError(makeState({ lastError: { message: 'boom' } })),
+    ).toEqual({ message: 'boom' });
+  });
+
+  it('selectTrackedConfig reads the tracked set', () => {
+    expect(
+      selectTrackedConfig(
+        makeState({
+          tracked: {
+            permissions: ['ios.permission.CAMERA'] as never,
+            notifications: true,
+            locationAccuracy: false,
+          },
+        }),
+      ),
+    ).toEqual({
+      permissions: ['ios.permission.CAMERA'],
+      notifications: true,
+      locationAccuracy: false,
+    });
+  });
+
+  it('selectLocationForegroundCapability is memoized for the same slice', () => {
+    const state = makeState();
+    const first = selectLocationForegroundCapability(state);
+    const second = selectLocationForegroundCapability(state);
+    expect(first).toBe(second);
   });
 });

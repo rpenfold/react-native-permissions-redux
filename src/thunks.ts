@@ -6,6 +6,7 @@ import {
   statusChecked,
   statusesChecked,
   syncCompleted,
+  syncFailed,
 } from './actions';
 import { SLICE_NAME } from './constants';
 import type { CrossPlatformPermission } from './cross-platform';
@@ -101,11 +102,26 @@ export const requestLocationAccuracy = createAsyncThunk(
   },
 );
 
+/** Latest in-flight sync generation; older completions must not write state. */
+let syncGeneration = 0;
+
 export const syncPermissions = createAsyncThunk(
   `${SLICE_NAME}/syncPermissions`,
   async (config: PermissionsConfig, { dispatch }) => {
+    const generation = ++syncGeneration;
     const payload = await syncPermissionsCore(config);
-    dispatch(syncCompleted(payload));
+    if (generation !== syncGeneration) {
+      return payload;
+    }
+    const hasData = Boolean(
+      payload.statuses || payload.notifications || payload.locationAccuracy,
+    );
+    if (hasData || !payload.error) {
+      dispatch(syncCompleted(payload));
+    }
+    if (payload.error) {
+      dispatch(syncFailed(payload.error));
+    }
     return payload;
   },
 );

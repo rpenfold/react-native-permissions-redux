@@ -20,6 +20,8 @@ jest.mock('react-native-permissions', () => ({
   requestNotifications: jest.fn(),
   checkLocationAccuracy: jest.fn(),
   requestLocationAccuracy: jest.fn(),
+  openSettings: jest.fn(),
+  openPhotoPicker: jest.fn(),
   PERMISSIONS: {
     IOS: {
       APP_TRACKING_TRANSPARENCY: 'ios.permission.APP_TRACKING_TRANSPARENCY',

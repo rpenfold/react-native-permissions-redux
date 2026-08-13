@@ -1,11 +1,21 @@
 export { SLICE_NAME } from './constants';
-export { permissionsReducer, reset, setListening } from './slice';
+export {
+  permissionsReducer,
+  reset,
+  setListening,
+  setTrackedConfig,
+  trackPermissions,
+  untrackPermissions,
+  setNotificationsTracking,
+  setLocationAccuracyTracking,
+} from './slice';
 export {
   statusChecked,
   statusesChecked,
   notificationsChecked,
   locationAccuracyChecked,
   syncCompleted,
+  syncFailed,
 } from './actions';
 export {
   checkPermission,
@@ -42,6 +52,8 @@ export {
   selectLocationForegroundCapability,
   selectListening,
   selectLastSyncedAt,
+  selectLastError,
+  selectTrackedConfig,
 } from './selectors';
 export {
   usePermission,
@@ -57,6 +69,7 @@ export {
 } from './assert-thunk-middleware';
 export { getLocationForegroundCapability } from './location-foreground';
 export { CrossPlatformPermission, resolvePermission } from './cross-platform';
+export { openSettings, openPhotoPicker } from './rnp-exports';
 export type {
   PermissionInput,
   PermissionsState,
@@ -74,4 +87,7 @@ export type {
   Rationale,
   NotificationSettings,
   LocationAccuracy,
+  PermissionError,
+  TrackedPermissions,
+  ForegroundSyncOn,
 } from './types';

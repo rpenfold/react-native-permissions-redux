@@ -9,6 +9,7 @@ import type {
   StatusCheckedPayload,
   SyncPermissionsResult,
 } from './permissions-core';
+import type { PermissionError } from './types';
 
 export const statusChecked = createAction<StatusCheckedPayload>(
   `${SLICE_NAME}/statusChecked`,
@@ -26,6 +27,22 @@ export const locationAccuracyChecked = createAction<LocationAccuracy>(
   `${SLICE_NAME}/locationAccuracyChecked`,
 );
 
-export const syncCompleted = createAction<SyncPermissionsResult>(
+export type SyncCompletedPayload = Omit<SyncPermissionsResult, 'error'> & {
+  lastSyncedAt: string;
+};
+
+export const syncCompleted = createAction(
   `${SLICE_NAME}/syncCompleted`,
+  (result: SyncPermissionsResult): { payload: SyncCompletedPayload } => ({
+    payload: {
+      statuses: result.statuses,
+      notifications: result.notifications,
+      locationAccuracy: result.locationAccuracy,
+      lastSyncedAt: new Date().toISOString(),
+    },
+  }),
+);
+
+export const syncFailed = createAction<PermissionError>(
+  `${SLICE_NAME}/syncFailed`,
 );

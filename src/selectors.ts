@@ -1,12 +1,14 @@
+import { createSelector } from '@reduxjs/toolkit';
 import type { PermissionStatus } from 'react-native-permissions';
 import { SLICE_NAME } from './constants';
 import { resolvePermissionInput } from './cross-platform';
 import { getLocationForegroundCapability } from './location-foreground';
 import type {
   LocationAccuracyState,
-  LocationForegroundCapability,
   NotificationsState,
+  PermissionError,
   PermissionInput,
+  PermissionsConfig,
   PermissionsState,
 } from './types';
 
@@ -33,13 +35,25 @@ export const selectLocationAccuracy = (
   state: RootState,
 ): LocationAccuracyState => selectSlice(state).locationAccuracy;
 
-export const selectLocationForegroundCapability = (
-  state: RootState,
-): LocationForegroundCapability =>
-  getLocationForegroundCapability(selectSlice(state));
+export const selectLocationForegroundCapability = createSelector(
+  selectSlice,
+  getLocationForegroundCapability,
+);
 
 export const selectListening = (state: RootState): boolean =>
   selectSlice(state).listening;
 
 export const selectLastSyncedAt = (state: RootState): string | null =>
   selectSlice(state).lastSyncedAt;
+
+export const selectLastError = (state: RootState): PermissionError | null =>
+  selectSlice(state).lastError;
+
+export const selectTrackedConfig = (state: RootState): PermissionsConfig => {
+  const tracked = selectSlice(state).tracked;
+  return {
+    permissions: tracked.permissions,
+    notifications: tracked.notifications,
+    locationAccuracy: tracked.locationAccuracy,
+  };
+};
