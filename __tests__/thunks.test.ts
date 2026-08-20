@@ -1,5 +1,6 @@
 import { configureStore } from '@reduxjs/toolkit';
 import { SLICE_NAME } from '../src/constants';
+import { CrossPlatformPermission } from '../src/cross-platform';
 import { permissionsReducer } from '../src/slice';
 import {
   checkLocationAccuracy,
@@ -96,6 +97,49 @@ describe('thunks', () => {
     );
 
     expect(RNP.requestMultiple).toHaveBeenCalledWith(['ios.permission.CAMERA']);
+  });
+
+  it('deduplicates native keys when coarse and fine map to the same iOS permission', async () => {
+    RNP.checkMultiple.mockResolvedValue({
+      'ios.permission.LOCATION_WHEN_IN_USE': 'granted',
+    });
+    const store = createStore();
+
+    await store.dispatch(
+      checkMultiplePermissions([
+        CrossPlatformPermission.LOCATION_COARSE,
+        CrossPlatformPermission.LOCATION_FINE,
+      ]),
+    );
+
+    expect(RNP.checkMultiple).toHaveBeenCalledWith([
+      'ios.permission.LOCATION_WHEN_IN_USE',
+    ]);
+  });
+
+  it('forwards notificationsRationale from requestMultiplePermissions', async () => {
+    RNP.requestNotifications.mockResolvedValue({
+      status: 'granted',
+      settings: { alert: true },
+    });
+    const store = createStore();
+    const rationale = {
+      title: 'Alerts',
+      message: 'Please enable notifications',
+    };
+
+    await store.dispatch(
+      requestMultiplePermissions({
+        permissions: [CrossPlatformPermission.NOTIFICATIONS],
+        notificationsRationale: rationale as never,
+      }),
+    );
+
+    expect(RNP.requestNotifications).toHaveBeenCalledWith(
+      ['alert', 'badge', 'sound'],
+      rationale,
+    );
+    expect(store.getState()[SLICE_NAME].notifications.status).toBe('granted');
   });
 
   it('checkNotifications calls RNP.checkNotifications', async () => {
@@ -197,6 +241,7 @@ describe('thunks', () => {
     expect(RNP.checkMultiple).not.toHaveBeenCalled();
     expect(RNP.checkNotifications).not.toHaveBeenCalled();
     expect(RNP.checkLocationAccuracy).not.toHaveBeenCalled();
+    expect(store.getState()[SLICE_NAME].lastSyncedAt).toBeNull();
   });
 
   it('syncPermissions isolates a failed checkMultiple and still checks notifications', async () => {
@@ -217,6 +262,43 @@ describe('thunks', () => {
     const state = store.getState()[SLICE_NAME];
     expect(state.notifications.status).toBe('granted');
     expect(state.lastError?.message).toBe('camera failed');
+  });
+
+  it('keeps a successful notifications check when checkMultiple fails', async () => {
+    RNP.checkNotifications.mockResolvedValue({
+      status: 'granted',
+      settings: { alert: true },
+    });
+    RNP.checkMultiple.mockRejectedValue(new Error('camera failed'));
+    const store = createStore();
+
+    await store.dispatch(
+      syncPermissions({
+        permissions: ['NOTIFICATIONS', 'ios.permission.CAMERA'] as never,
+        notifications: false,
+      }),
+    );
+
+    const state = store.getState()[SLICE_NAME];
+    expect(state.statuses.NOTIFICATIONS).toBe('granted');
+    expect(state.notifications.status).toBe('granted');
+    expect(state.lastError?.message).toBe('camera failed');
+    expect(state.errors['ios.permission.CAMERA']?.message).toBe(
+      'camera failed',
+    );
+    expect(state.errors.NOTIFICATIONS).toBeUndefined();
+  });
+
+  it('records notification errors under NOTIFICATIONS', async () => {
+    RNP.checkNotifications.mockRejectedValue(new Error('notify boom'));
+    const store = createStore();
+
+    await store.dispatch(checkNotifications());
+
+    expect(store.getState()[SLICE_NAME].errors.NOTIFICATIONS?.message).toBe(
+      'notify boom',
+    );
+    expect(store.getState()[SLICE_NAME].lastError?.key).toBe('NOTIFICATIONS');
   });
 
   it('ignores a stale sync result when a newer sync finishes first', async () => {

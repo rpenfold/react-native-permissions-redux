@@ -1,5 +1,6 @@
 import { configureStore } from '@reduxjs/toolkit';
 import { AppState } from 'react-native';
+import createSagaMiddleware from 'redux-saga';
 import { runSaga } from 'redux-saga';
 import { SLICE_NAME } from '../src/constants';
 import { permissionForegroundSyncSaga } from '../src/sagas';
@@ -205,27 +206,29 @@ describe('permissionForegroundSyncSaga', () => {
     await task.toPromise();
   });
 
-  it('picks up permissions added via trackPermissions', async () => {
-    const store = createStore();
-    const task = runSaga(
-      {
-        dispatch: store.dispatch,
-        getState: store.getState,
-      },
-      permissionForegroundSyncSaga,
-      { permissions: ['ios.permission.CAMERA'] as never },
-    );
+  it('picks up permissions added via trackPermissions immediately', async () => {
+    const sagaMiddleware = createSagaMiddleware();
+    const store = configureStore({
+      reducer: { [SLICE_NAME]: permissionsReducer },
+      middleware: (getDefaultMiddleware) =>
+        getDefaultMiddleware({
+          thunk: false,
+          serializableCheck: false,
+          immutableCheck: false,
+        }).concat(sagaMiddleware),
+    });
+    const task = sagaMiddleware.run(permissionForegroundSyncSaga, {
+      permissions: ['ios.permission.CAMERA'] as never,
+    });
 
     await flush();
-    store.dispatch(trackPermissions(['ios.permission.MICROPHONE'] as never));
     RNP.checkMultiple.mockClear();
     RNP.checkMultiple.mockResolvedValue({
       'ios.permission.CAMERA': 'granted',
       'ios.permission.MICROPHONE': 'denied',
     });
 
-    getChangeHandler()('background');
-    getChangeHandler()('active');
+    store.dispatch(trackPermissions(['ios.permission.MICROPHONE'] as never));
     await flush();
 
     expect(RNP.checkMultiple).toHaveBeenCalledWith([
@@ -235,6 +238,43 @@ describe('permissionForegroundSyncSaga', () => {
 
     task.cancel();
     await task.toPromise();
+  });
+
+  it('ignores a second fork while already listening', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const store = createStore();
+    const first = runSaga(
+      {
+        dispatch: store.dispatch,
+        getState: store.getState,
+      },
+      permissionForegroundSyncSaga,
+      { permissions: ['ios.permission.CAMERA'] as never },
+    );
+    await flush();
+
+    const second = runSaga(
+      {
+        dispatch: store.dispatch,
+        getState: store.getState,
+      },
+      permissionForegroundSyncSaga,
+      { permissions: ['ios.permission.MICROPHONE'] as never },
+    );
+    await flush();
+
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('already listening'),
+    );
+    expect(store.getState()[SLICE_NAME].tracked.permissions).toEqual([
+      'ios.permission.CAMERA',
+    ]);
+
+    first.cancel();
+    second.cancel();
+    await first.toPromise();
+    await second.toPromise();
+    warn.mockRestore();
   });
 
   it('ignores inactive → active when syncOn is backgroundToActive', async () => {
@@ -260,5 +300,42 @@ describe('permissionForegroundSyncSaga', () => {
     expect(RNP.checkMultiple).not.toHaveBeenCalled();
     task.cancel();
     await task.toPromise();
+  });
+
+  it('debounces AppState-triggered syncs', async () => {
+    jest.useFakeTimers();
+    try {
+      (AppState as { currentState: string }).currentState = 'background';
+      const store = createStore();
+      const task = runSaga(
+        {
+          dispatch: store.dispatch,
+          getState: store.getState,
+        },
+        permissionForegroundSyncSaga,
+        {
+          permissions: ['ios.permission.CAMERA'] as never,
+          debounceMs: 200,
+        },
+      );
+
+      await jest.runOnlyPendingTimersAsync();
+      expect(RNP.checkMultiple).toHaveBeenCalledTimes(1);
+      RNP.checkMultiple.mockClear();
+
+      getChangeHandler()('active');
+      expect(RNP.checkMultiple).not.toHaveBeenCalled();
+
+      await jest.advanceTimersByTimeAsync(199);
+      expect(RNP.checkMultiple).not.toHaveBeenCalled();
+
+      await jest.advanceTimersByTimeAsync(1);
+      expect(RNP.checkMultiple).toHaveBeenCalledTimes(1);
+
+      task.cancel();
+      await task.toPromise();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });

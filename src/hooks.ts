@@ -7,10 +7,31 @@ import type {
   Rationale,
 } from 'react-native-permissions';
 import { useDispatch, useSelector } from 'react-redux';
-import { SLICE_NAME } from './constants';
-import { CrossPlatformPermission } from './cross-platform';
-import { dispatchThunk } from './dispatch-thunk';
 import {
+  locationAccuracyChecked,
+  notificationsChecked,
+  statusChecked,
+  statusesChecked,
+  syncFailed,
+} from './actions';
+import {
+  LOCATION_ACCURACY_ERROR_KEY,
+  NOTIFICATIONS_ERROR_KEY,
+  SLICE_NAME,
+} from './constants';
+import { CrossPlatformPermission } from './cross-platform';
+import { dispatchThunkOrCore } from './dispatch-thunk';
+import {
+  checkLocationAccuracyCore,
+  checkMultiplePermissionsCore,
+  checkNotificationsCore,
+  checkPermissionCore,
+  requestLocationAccuracyCore,
+  requestNotificationsCore,
+  requestPermissionCore,
+} from './permissions-core';
+import {
+  permissionStatusKey,
   selectLocationAccuracy,
   selectLocationForegroundCapability,
   selectNotifications,
@@ -48,9 +69,12 @@ export function usePermission(
 
   const doRequest = useCallback(
     async (rationale?: Rationale) => {
-      const result = await dispatchThunk<{ status: PermissionStatus }>(
+      const result = await dispatchThunkOrCore(
         dispatch,
         requestPermission({ permission, rationale }),
+        () => requestPermissionCore({ permission, rationale }),
+        statusChecked,
+        permissionStatusKey(permission),
       );
       return result.status;
     },
@@ -58,9 +82,12 @@ export function usePermission(
   );
 
   const doCheck = useCallback(async () => {
-    const result = await dispatchThunk<{ status: PermissionStatus }>(
+    const result = await dispatchThunkOrCore(
       dispatch,
       checkPermission(permission),
+      () => checkPermissionCore(permission),
+      statusChecked,
+      permissionStatusKey(permission),
     );
     return result.status;
   }, [dispatch, permission]);
@@ -81,16 +108,25 @@ export function useNotificationPermission(): [
 
   const doRequest = useCallback(
     async (options: NotificationOption[], rationale?: Rationale) => {
-      await dispatchThunk(
+      await dispatchThunkOrCore(
         dispatch,
         requestNotifications({ options, rationale }),
+        () => requestNotificationsCore({ options, rationale }),
+        notificationsChecked,
+        NOTIFICATIONS_ERROR_KEY,
       );
     },
     [dispatch],
   );
 
   const doCheck = useCallback(async () => {
-    await dispatchThunk(dispatch, checkNotifications());
+    await dispatchThunkOrCore(
+      dispatch,
+      checkNotifications(),
+      checkNotificationsCore,
+      notificationsChecked,
+      NOTIFICATIONS_ERROR_KEY,
+    );
   }, [dispatch]);
 
   return [state, doRequest, doCheck];
@@ -106,13 +142,25 @@ export function useLocationAccuracy(): [
 
   const doRequest = useCallback(
     async (purposeKey: string) => {
-      await dispatchThunk(dispatch, requestLocationAccuracy({ purposeKey }));
+      await dispatchThunkOrCore(
+        dispatch,
+        requestLocationAccuracy({ purposeKey }),
+        () => requestLocationAccuracyCore({ purposeKey }),
+        locationAccuracyChecked,
+        LOCATION_ACCURACY_ERROR_KEY,
+      );
     },
     [dispatch],
   );
 
   const doCheck = useCallback(async () => {
-    await dispatchThunk(dispatch, checkLocationAccuracy());
+    await dispatchThunkOrCore(
+      dispatch,
+      checkLocationAccuracy(),
+      checkLocationAccuracyCore,
+      locationAccuracyChecked,
+      LOCATION_ACCURACY_ERROR_KEY,
+    );
   }, [dispatch]);
 
   return [state, doRequest, doCheck];
@@ -126,15 +174,31 @@ export function useLocationForegroundCapability(): [
   const capability = useSelector(selectLocationForegroundCapability);
 
   const refresh = useCallback(async () => {
-    await dispatchThunk(
+    await dispatchThunkOrCore(
       dispatch,
       checkMultiplePermissions([
         CrossPlatformPermission.LOCATION_COARSE,
         CrossPlatformPermission.LOCATION_FINE,
       ]),
+      async () => {
+        const result = await checkMultiplePermissionsCore([
+          CrossPlatformPermission.LOCATION_COARSE,
+          CrossPlatformPermission.LOCATION_FINE,
+        ]);
+        if (result.error) {
+          dispatch(syncFailed(result.error));
+        }
+        return result.statuses;
+      },
+      statusesChecked,
     );
     if (Platform.OS === 'ios') {
-      await dispatchThunk(dispatch, checkLocationAccuracy());
+      await dispatchThunkOrCore(
+        dispatch,
+        checkLocationAccuracy(),
+        checkLocationAccuracyCore,
+        locationAccuracyChecked,
+      );
     }
   }, [dispatch]);
 

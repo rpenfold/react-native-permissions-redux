@@ -41,7 +41,7 @@ When your app returns to the foreground, all tracked permissions are automatical
 
 ## Features
 
-- **Automatic foreground sync** — Uses `AppState` to re-check permissions whenever your app becomes active. Your users toggle a permission in Settings, come back, and everything Just Works. Transient native errors are recorded in `lastError` and do not kill the listener.
+- **Automatic foreground sync** — Uses `AppState` to re-check permissions whenever your app becomes active. Your users toggle a permission in Settings, come back, and everything Just Works. Transient native errors are recorded in `lastError` and the per-key `errors` map and do not kill the listener.
 - **Dynamic tracked set** — Add or remove permissions after startup (`trackPermissions`) without tearing down the AppState subscription — useful with dynamic Redux modules.
 - **Atomic state updates** — Every `check` and `request` call updates Redux state on completion. No manual dispatching, no stale reads.
 - **Purpose-built hooks** — `usePermission`, `useNotificationPermission`, and `useLocationAccuracy` return `[state, request, check]`-style tuples. **`useLocationForegroundCapability`** returns `[capability, refresh]` for a unified foreground location view (coarse/fine + iOS accuracy).
@@ -77,7 +77,7 @@ These should already be in your project:
 
 ## Store requirements
 
-**Thunk middleware** is required when you use hooks or `startPermissionListener` (the default thunk-based foreground sync). Redux Toolkit's `configureStore` includes it automatically. If you customize middleware, keep the default thunk middleware:
+**Thunk middleware** is required for `startPermissionListener` (the default thunk-based foreground sync). Redux Toolkit's `configureStore` includes it automatically. If you customize middleware, keep the default thunk middleware:
 
 ```ts
 middleware: (getDefaultMiddleware) => getDefaultMiddleware(),
@@ -85,7 +85,7 @@ middleware: (getDefaultMiddleware) => getDefaultMiddleware(),
 
 Custom `createStore` setups must include `redux-thunk` (or equivalent) in the middleware chain. Otherwise async thunks fail with an opaque Redux error. Call `assertThunkMiddleware(store)` once at startup to get a clear error message.
 
-**redux-saga alternative:** If your store does not use thunk middleware, fork `permissionForegroundSyncSaga(config)` in your root saga instead of `startPermissionListener`. Foreground sync then works without thunks. Hooks and direct thunk dispatch still require thunk middleware.
+**redux-saga alternative:** If your store does not use thunk middleware, fork `permissionForegroundSyncSaga(config)` in your root saga instead of `startPermissionListener`. Foreground sync then works without thunks. Hooks still work: `request` / `check` fall back to the core functions and library actions when thunk middleware is absent. Direct `store.dispatch(checkPermission(...))` still requires thunks.
 
 ---
 
@@ -291,7 +291,7 @@ const [status, request] = usePermission(CrossPlatformPermission.CAMERA);
 
 A `—` means the permission has no equivalent on that platform.
 
-**Notifications:** `CrossPlatformPermission.NOTIFICATIONS` is Android-only and maps to `POST_NOTIFICATIONS` on **react-native-permissions v4**. That constant was removed in v5, so the enum resolves to `'unavailable'` and logs a warning. For a cross-platform notification status (iOS + Android, including pre-13), use [`useNotificationPermission`](#usenotificationpermission) / `checkNotifications` / `requestNotifications` — a different API that writes `state.notifications`, not `state.statuses`.
+**Notifications:** `check` / `request` / `usePermission(CrossPlatformPermission.NOTIFICATIONS)` call `checkNotifications` / `requestNotifications` (default options `alert`, `badge`, `sound`) on every platform. Status is written to both `statuses.NOTIFICATIONS` and `state.notifications`, so `useNotificationPermission` stays in sync. `resolvePermission(NOTIFICATIONS)` is still Android/`POST_NOTIFICATIONS` only (null on iOS and on RNP v5).
 
 **Bluetooth on Android 12+:** `BLUETOOTH` maps to connect (paired devices). `BLUETOOTH_SCAN` maps to BLE discovery. Apps that scan and connect should track **both** in `permissions` (same idea as coarse + fine location). Checking or requesting it will return `'unavailable'` without touching the native module.
 
@@ -373,9 +373,10 @@ const [{ access, precision }, refresh] = useLocationForegroundCapability();
 | `selectPermissionStatus(perm)` | Not checked yet (or use `'unavailable'` when the cross-platform key has no mapping on this platform) |
 | `notifications.status` / `settings` | Notifications sync not enabled — set `notifications: true` in listener/saga config, or dispatch `checkNotifications` |
 | `locationAccuracy.accuracy` | Accuracy sync not enabled — set `locationAccuracy: true` on iOS, or dispatch `checkLocationAccuracy` |
-| `selectLastError` | No native call has failed since the last successful update |
+| `selectLastError` | No native call has failed since the last successful update of that most-recent key (global, not per-permission) |
+| `selectPermissionError(perm)` | That permission has not failed (or the error was cleared) |
 
-These `null` values are expected before the first sync; they do not indicate an error. A failed `check` / `request` / sync sets `lastError: { message }` and does **not** invent a permission status.
+These `null` values are expected before the first sync; they do not indicate an error. A failed `check` / `request` / sync sets `lastError: { message, key? }` (most recent failure) and `errors[key]`, and does **not** invent a permission status. Use `selectPermissionError` for a specific permission.
 
 ---
 
@@ -393,11 +394,19 @@ The slice reducer. Mount it at `[SLICE_NAME]` in your root reducer.
 
 The string `'permissions'`. Use this as the reducer key to ensure selectors work correctly.
 
+#### Error-key constants
+
+- `SYNC_ERROR_KEY` (`'_sync'`) — batch/sync failure with no more specific key
+- `NOTIFICATIONS_ERROR_KEY` (`'NOTIFICATIONS'`) — `checkNotifications` / `requestNotifications` / notification sync
+- `LOCATION_ACCURACY_ERROR_KEY` (`'locationAccuracy'`) — iOS accuracy checks
+
+Use these with `selectPermissionError` or the `errors` map.
+
 ### Slice actions
 
 #### `reset()`
 
-Resets all permission state back to initial values (empty statuses, null notifications/accuracy, listening = false).
+Resets slice state to initial values (empty statuses, null notifications/accuracy, `listening: false`, cleared errors). **Does not** unsubscribe `AppState` or cancel a running saga. Call the listener teardown (or cancel the saga task) first; otherwise native events keep firing after the slice looks idle.
 
 #### `setListening(boolean)`
 
@@ -407,38 +416,58 @@ Manually control the listening flag. Normally managed by `startPermissionListene
 
 Add or remove entries in the tracked set used by foreground sync. Does not tear down the AppState listener. Same for `setNotificationsTracking(boolean)` and `setLocationAccuracyTracking(boolean)`.
 
+#### `setTrackedConfig(config)`
+
+Replace the entire tracked set at once (`permissions`, `notifications`, `locationAccuracy`). Prefer the incremental helpers above. Growing the set triggers an immediate sync.
+
+### Library actions
+
+These update the slice without going through thunks — use them from sagas or after calling `*Core` functions:
+
+| Action | Payload |
+|---|---|
+| `statusChecked` | `{ permission, status, notifications? }` |
+| `statusesChecked` | `Record<string, PermissionStatus>` |
+| `notificationsChecked` | `{ status, settings }` |
+| `locationAccuracyChecked` | `{ accuracy }` |
+| `syncCompleted` | `{ statuses?, notifications?, locationAccuracy? }` |
+| `syncFailed` | `{ message, key?, keys? }` |
+
+### Helpers
+
+#### `isNotificationsPermission(permission)`
+
+`true` for `CrossPlatformPermission.NOTIFICATIONS` (and the `'NOTIFICATIONS'` string). Those go through `checkNotifications` / `requestNotifications`, not `check` / `request`.
+
 ### Listener
+
+`config` for both integrations:
+
+- `permissions?` — `PermissionInput[]` to re-check on sync
+- `notifications?` — whether to check notification status + settings
+- `locationAccuracy?` — whether to check iOS location accuracy
+- `syncOn?` — `'nonActiveToActive'` (default) or `'backgroundToActive'`
+- `debounceMs?` — debounce AppState-triggered syncs (initial sync is never debounced)
+
+Adding permissions (or turning notifications/accuracy tracking on) via `trackPermissions` / `setNotificationsTracking` / `setLocationAccuracyTracking` triggers an immediate sync. Untracking stops future checks but leaves the last known status in the store.
+
+Overlapping syncs are coalesced on both paths. A slower older sync cannot overwrite a newer result. If a native `check` fails, `lastError` / `errors` are set and listening continues.
 
 #### `startPermissionListener(store, config) => () => void`
 
-Thunk-based integration point. Subscribes to `AppState` and keeps your Redux store in sync. Requires thunk middleware (see [Store requirements](#store-requirements)).
+Thunk-based integration. Requires thunk middleware (see [Store requirements](#store-requirements)).
+
+- **Parameters:** `store`, `config`
+- **Returns:** teardown function that unsubscribes from `AppState`, invalidates in-flight listener syncs, and sets `listening` to `false`
+- Only one listener is active per JS runtime. Calling again stops the previous subscription and starts a new one (dev warning). `reset()` is not a substitute for this teardown.
 
 #### `permissionForegroundSyncSaga(config)`
 
-redux-saga integration point. Fork in your root saga. Does not require thunk middleware for foreground sync. Requires `redux-saga` as a peer dependency. Uses the same `config` shape as `startPermissionListener`. Runs an initial sync, then re-syncs on every foreground transition. Cancel the forked task to tear down.
+redux-saga integration. Fork in your root saga. Does not require thunk middleware. Requires the `redux-saga` peer.
 
-**Parameters:**
-
-- `store` — your Redux store instance
-- `config` — what to track:
-  - `permissions?` — `PermissionInput[]` (`CrossPlatformPermission` and/or native `Permission` strings) to re-check on sync
-  - `notifications?` — `boolean` — whether to check notification status
-  - `locationAccuracy?` — `boolean` — whether to check iOS location accuracy (`checkLocationAccuracy`)
-  - `syncOn?` — `'nonActiveToActive'` (default) or `'backgroundToActive'`. The default treats control-centre peeks and permission dialogs (`inactive → active`) like a return from Settings. Use `'backgroundToActive'` to skip those.
-  - `debounceMs?` — debounce AppState-triggered syncs. The initial sync is never debounced.
-
-The tracked permission set is stored on the slice. After the listener/saga is running, dispatch `trackPermissions` / `untrackPermissions` / `setNotificationsTracking` / `setLocationAccuracyTracking` to add modules at runtime without tearing down the AppState subscription. The next sync (and any in-flight coalesced retry) reads the latest set from the store.
-
-Overlapping foreground transitions are coalesced: one sync runs at a time, and at most one extra sync runs if a transition arrived while busy. A slower older `syncPermissions` cannot overwrite a newer result.
-
-**Returns:** a teardown function that unsubscribes from `AppState` and sets `listening` to `false`.
-
-**Behavior:**
-1. Writes the config into `state.permissions.tracked` and sets `listening` to `true`
-2. Dispatches `syncPermissions` immediately (from the tracked set)
-3. On every configured `AppState` transition to `'active'`, syncs again
-
-If a native `check` fails, `lastError` is set and **foreground listening continues**. One rejected call inside a bulk sync does not skip the other configured checks.
+- **Parameters:** `config` only (no `store`)
+- **Teardown:** cancel the forked task — `reset()` does not cancel it
+- Forking again while `listening` is true is ignored (dev warning). Cancel the first task before forking again.
 
 #### `openSettings()` / `openPhotoPicker()`
 
@@ -510,7 +539,7 @@ All thunks call the corresponding `react-native-permissions` function and update
 | `checkPermission` | `PermissionInput` | `RNP.check()` |
 | `requestPermission` | `{ permission: PermissionInput, rationale? }` | `RNP.request()` |
 | `checkMultiplePermissions` | `PermissionInput[]` | `RNP.checkMultiple()` |
-| `requestMultiplePermissions` | `PermissionInput[]` | `RNP.requestMultiple()` |
+| `requestMultiplePermissions` | `PermissionInput[]` or `{ permissions, notificationsRationale? }` | `RNP.requestMultiple()` (and `requestNotifications` when the batch includes `NOTIFICATIONS`) |
 | `checkNotifications` | — | `RNP.checkNotifications()` |
 | `requestNotifications` | `{ options, rationale? }` | `RNP.requestNotifications()` |
 | `checkLocationAccuracy` | — | `RNP.checkLocationAccuracy()` |
@@ -530,7 +559,9 @@ All selectors expect the root state to have the permissions slice mounted at `[S
 | `selectLocationForegroundCapability` | `{ access, precision }` | Unified foreground location ([section](#foreground-location-unified)) |
 | `selectListening` | `boolean` | Whether the AppState listener is active |
 | `selectLastSyncedAt` | `string \| null` | ISO timestamp of the last successful sync |
-| `selectLastError` | `{ message } \| null` | Last native-call failure; cleared on the next successful update |
+| `selectLastError` | `{ message, key? } \| null` | Most recent native-call failure; cleared when that key succeeds |
+| `selectPermissionError(permission)` | `(state) => PermissionError \| null` | Factory selector for one permission's error |
+| `selectErrors` | `Record<string, PermissionError>` | All per-key failures |
 | `selectTrackedConfig` | `PermissionsConfig` | Permissions currently re-checked on foreground sync |
 
 ### Types & imports
@@ -565,6 +596,7 @@ import type {
   LocationForegroundPrecision,
   RequestPermissionPayload,
   RequestNotificationsPayload,
+  RequestMultiplePermissionsPayload,
   RequestLocationAccuracyPayload,
   PermissionError,
   TrackedPermissions,

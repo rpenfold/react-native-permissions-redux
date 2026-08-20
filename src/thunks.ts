@@ -24,6 +24,7 @@ import {
 import type {
   PermissionsConfig,
   RequestLocationAccuracyPayload,
+  RequestMultiplePermissionsArg,
   RequestNotificationsPayload,
   RequestPermissionPayload,
 } from './types';
@@ -52,17 +53,35 @@ export const checkMultiplePermissions = createAsyncThunk(
   `${SLICE_NAME}/checkMultiplePermissions`,
   async (permissions: PermissionInput[], { dispatch }) => {
     const payload = await checkMultiplePermissionsCore(permissions);
-    dispatch(statusesChecked(payload));
-    return payload;
+    dispatch(statusesChecked(payload.statuses));
+    if (payload.notifications) {
+      dispatch(notificationsChecked(payload.notifications));
+    }
+    if (payload.error) {
+      dispatch(syncFailed(payload.error));
+    }
+    return payload.statuses;
   },
 );
 
 export const requestMultiplePermissions = createAsyncThunk(
   `${SLICE_NAME}/requestMultiplePermissions`,
-  async (permissions: PermissionInput[], { dispatch }) => {
-    const payload = await requestMultiplePermissionsCore(permissions);
-    dispatch(statusesChecked(payload));
-    return payload;
+  async (arg: RequestMultiplePermissionsArg, { dispatch }) => {
+    const permissions = Array.isArray(arg) ? arg : arg.permissions;
+    const payload = await requestMultiplePermissionsCore(
+      permissions,
+      Array.isArray(arg)
+        ? undefined
+        : { notificationsRationale: arg.notificationsRationale },
+    );
+    dispatch(statusesChecked(payload.statuses));
+    if (payload.notifications) {
+      dispatch(notificationsChecked(payload.notifications));
+    }
+    if (payload.error) {
+      dispatch(syncFailed(payload.error));
+    }
+    return payload.statuses;
   },
 );
 
@@ -105,6 +124,11 @@ export const requestLocationAccuracy = createAsyncThunk(
 /** Latest in-flight sync generation; older completions must not write state. */
 let syncGeneration = 0;
 
+/** Call from listener teardown so a still-running sync cannot write after stop. */
+export function invalidateInFlightSyncs(): void {
+  syncGeneration += 1;
+}
+
 export const syncPermissions = createAsyncThunk(
   `${SLICE_NAME}/syncPermissions`,
   async (config: PermissionsConfig, { dispatch }) => {
@@ -116,7 +140,7 @@ export const syncPermissions = createAsyncThunk(
     const hasData = Boolean(
       payload.statuses || payload.notifications || payload.locationAccuracy,
     );
-    if (hasData || !payload.error) {
+    if (hasData) {
       dispatch(syncCompleted(payload));
     }
     if (payload.error) {

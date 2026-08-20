@@ -12,31 +12,43 @@ import {
   syncCompleted,
   syncFailed,
 } from './actions';
-import { SLICE_NAME } from './constants';
+import {
+  LOCATION_ACCURACY_ERROR_KEY,
+  NOTIFICATIONS_ERROR_KEY,
+  SLICE_NAME,
+  SYNC_ERROR_KEY,
+} from './constants';
+import { CrossPlatformPermission } from './cross-platform';
 import type {
+  PermissionError,
   PermissionInput,
   PermissionsConfig,
   PermissionsState,
 } from './types';
 
-const initialState: PermissionsState = {
-  statuses: {},
-  notifications: {
-    status: null,
-    settings: null,
-  },
-  locationAccuracy: {
-    accuracy: null,
-  },
-  listening: false,
-  lastSyncedAt: null,
-  lastError: null,
-  tracked: {
-    permissions: [],
-    notifications: false,
-    locationAccuracy: false,
-  },
-};
+function createInitialState(): PermissionsState {
+  return {
+    statuses: {},
+    notifications: {
+      status: null,
+      settings: null,
+    },
+    locationAccuracy: {
+      accuracy: null,
+    },
+    listening: false,
+    lastSyncedAt: null,
+    lastError: null,
+    errors: {},
+    tracked: {
+      permissions: [],
+      notifications: false,
+      locationAccuracy: false,
+    },
+  };
+}
+
+const initialState: PermissionsState = createInitialState();
 
 function trackedFromConfig(config: PermissionsConfig) {
   return {
@@ -46,11 +58,50 @@ function trackedFromConfig(config: PermissionsConfig) {
   };
 }
 
+function recordError(state: PermissionsState, error: PermissionError): void {
+  const keys =
+    error.keys && error.keys.length > 0
+      ? error.keys
+      : [error.key ?? SYNC_ERROR_KEY];
+  state.lastError = { message: error.message, key: keys[0] };
+  for (const key of keys) {
+    state.errors[key] = { message: error.message, key };
+  }
+}
+
+function clearErrorKey(state: PermissionsState, key: string): void {
+  delete state.errors[key];
+  if (state.lastError?.key === key) {
+    state.lastError = null;
+  }
+}
+
+function errorKeyFromRejected(action: {
+  type: string;
+  meta?: { arg?: unknown };
+}): string {
+  const arg = action.meta?.arg;
+  if (typeof arg === 'string') {
+    return arg;
+  }
+  if (arg && typeof arg === 'object' && 'permission' in arg) {
+    return String((arg as { permission: unknown }).permission);
+  }
+  if (action.type.includes('Notifications')) {
+    return NOTIFICATIONS_ERROR_KEY;
+  }
+  if (action.type.includes('LocationAccuracy')) {
+    return LOCATION_ACCURACY_ERROR_KEY;
+  }
+  return SYNC_ERROR_KEY;
+}
+
 const permissionsSlice = createSlice({
   name: SLICE_NAME,
   initialState,
   reducers: {
-    reset: () => initialState,
+    /** Slice state only. Does not stop the AppState listener or cancel the saga. */
+    reset: () => createInitialState(),
     setListening: (state, action: PayloadAction<boolean>) => {
       state.listening = action.payload;
     },
@@ -81,49 +132,92 @@ const permissionsSlice = createSlice({
     builder
       .addCase(statusChecked, (state, action) => {
         state.statuses[action.payload.permission] = action.payload.status;
-        state.lastError = null;
+        clearErrorKey(state, action.payload.permission);
+        if (action.payload.notifications) {
+          state.notifications.status = action.payload.notifications.status;
+          state.notifications.settings = action.payload.notifications
+            .settings as NotificationSettings;
+          clearErrorKey(state, NOTIFICATIONS_ERROR_KEY);
+        } else if (
+          action.payload.permission === CrossPlatformPermission.NOTIFICATIONS
+        ) {
+          state.notifications.status = action.payload.status;
+          clearErrorKey(state, NOTIFICATIONS_ERROR_KEY);
+        }
       })
       .addCase(statusesChecked, (state, action) => {
         Object.assign(state.statuses, action.payload);
-        state.lastError = null;
+        for (const key of Object.keys(action.payload)) {
+          clearErrorKey(state, key);
+        }
+        const notificationStatus =
+          action.payload[CrossPlatformPermission.NOTIFICATIONS];
+        if (notificationStatus) {
+          state.notifications.status = notificationStatus;
+          clearErrorKey(state, NOTIFICATIONS_ERROR_KEY);
+        }
       })
       .addCase(notificationsChecked, (state, action) => {
         state.notifications.status = action.payload.status;
         state.notifications.settings = action.payload
           .settings as NotificationSettings;
-        state.lastError = null;
+        state.statuses[CrossPlatformPermission.NOTIFICATIONS] =
+          action.payload.status;
+        clearErrorKey(state, NOTIFICATIONS_ERROR_KEY);
       })
       .addCase(locationAccuracyChecked, (state, action) => {
         state.locationAccuracy.accuracy = action.payload as LocationAccuracy;
-        state.lastError = null;
+        clearErrorKey(state, LOCATION_ACCURACY_ERROR_KEY);
       })
       .addCase(syncCompleted, (state, action) => {
         if (action.payload.statuses) {
           Object.assign(state.statuses, action.payload.statuses);
+          for (const key of Object.keys(action.payload.statuses)) {
+            clearErrorKey(state, key);
+          }
+          clearErrorKey(state, SYNC_ERROR_KEY);
         }
         if (action.payload.notifications) {
           state.notifications.status = action.payload.notifications.status;
           state.notifications.settings = action.payload.notifications
             .settings as NotificationSettings;
+          state.statuses[CrossPlatformPermission.NOTIFICATIONS] =
+            action.payload.notifications.status;
+          clearErrorKey(state, NOTIFICATIONS_ERROR_KEY);
+        } else if (
+          action.payload.statuses?.[CrossPlatformPermission.NOTIFICATIONS]
+        ) {
+          state.notifications.status =
+            action.payload.statuses[CrossPlatformPermission.NOTIFICATIONS];
+          clearErrorKey(state, NOTIFICATIONS_ERROR_KEY);
         }
         if (action.payload.locationAccuracy) {
           state.locationAccuracy.accuracy = action.payload
             .locationAccuracy as LocationAccuracy;
+          clearErrorKey(state, LOCATION_ACCURACY_ERROR_KEY);
         }
         state.lastSyncedAt = action.payload.lastSyncedAt;
-        state.lastError = null;
       })
       .addCase(syncFailed, (state, action) => {
-        state.lastError = action.payload;
+        recordError(state, action.payload);
       })
       .addMatcher(
         (action: { type: string }) =>
           action.type.startsWith(`${SLICE_NAME}/`) &&
           action.type.endsWith('/rejected'),
-        (state, action: { error?: { message?: string } }) => {
-          state.lastError = {
+        (
+          state,
+          action: {
+            type: string;
+            error?: { message?: string };
+            meta?: { arg?: unknown };
+          },
+        ) => {
+          const key = errorKeyFromRejected(action);
+          recordError(state, {
             message: action.error?.message ?? 'Permission request failed',
-          };
+            key,
+          });
         },
       );
   },

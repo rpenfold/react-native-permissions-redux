@@ -5,6 +5,7 @@ import { Provider } from 'react-redux';
 import { SLICE_NAME } from '../src/constants';
 import {
   useLocationAccuracy,
+  useLocationForegroundCapability,
   useNotificationPermission,
   usePermission,
 } from '../src/hooks';
@@ -69,6 +70,52 @@ describe('usePermission', () => {
 
     expect(result.current[0]).toBe('granted');
   });
+
+  it('check works without thunk middleware', async () => {
+    RNP.check.mockResolvedValue('granted');
+    const store = configureStore({
+      reducer: { [SLICE_NAME]: permissionsReducer },
+      middleware: (getDefaultMiddleware) =>
+        getDefaultMiddleware({ thunk: false, serializableCheck: false }),
+    });
+    const { result } = renderHook(
+      () => usePermission('ios.permission.CAMERA' as never),
+      { wrapper: createWrapper(store) },
+    );
+
+    await act(async () => {
+      await result.current[2]();
+    });
+
+    expect(result.current[0]).toBe('granted');
+    expect(store.getState()[SLICE_NAME].statuses['ios.permission.CAMERA']).toBe(
+      'granted',
+    );
+  });
+
+  it('records a native failure without thunk middleware', async () => {
+    RNP.check.mockRejectedValue(new Error('camera failed'));
+    const store = configureStore({
+      reducer: { [SLICE_NAME]: permissionsReducer },
+      middleware: (getDefaultMiddleware) =>
+        getDefaultMiddleware({ thunk: false, serializableCheck: false }),
+    });
+    const { result } = renderHook(
+      () => usePermission('ios.permission.CAMERA' as never),
+      { wrapper: createWrapper(store) },
+    );
+
+    await act(async () => {
+      await expect(result.current[2]()).rejects.toThrow('camera failed');
+    });
+
+    expect(store.getState()[SLICE_NAME].lastError?.message).toBe(
+      'camera failed',
+    );
+    expect(
+      store.getState()[SLICE_NAME].errors['ios.permission.CAMERA']?.message,
+    ).toBe('camera failed');
+  });
 });
 
 describe('useNotificationPermission', () => {
@@ -132,5 +179,32 @@ describe('useLocationAccuracy', () => {
     });
 
     expect(result.current[0].accuracy).toBe('full');
+  });
+});
+
+describe('useLocationForegroundCapability', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('records a partial checkMultiple error without thunk middleware', async () => {
+    RNP.checkMultiple.mockRejectedValue(new Error('location failed'));
+    RNP.checkLocationAccuracy.mockResolvedValue('full');
+    const store = configureStore({
+      reducer: { [SLICE_NAME]: permissionsReducer },
+      middleware: (getDefaultMiddleware) =>
+        getDefaultMiddleware({ thunk: false, serializableCheck: false }),
+    });
+    const { result } = renderHook(() => useLocationForegroundCapability(), {
+      wrapper: createWrapper(store),
+    });
+
+    await act(async () => {
+      await result.current[1]();
+    });
+
+    expect(store.getState()[SLICE_NAME].lastError?.message).toBe(
+      'location failed',
+    );
   });
 });

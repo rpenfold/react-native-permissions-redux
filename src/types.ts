@@ -53,6 +53,10 @@ export interface LocationForegroundCapability {
 /** Serializable native-call failure. `null` status still means "not checked yet". */
 export interface PermissionError {
   message: string;
+  /** Permission string, `NOTIFICATIONS`, `locationAccuracy`, or `_sync`. */
+  key?: string;
+  /** All keys affected by a bulk/sync failure. */
+  keys?: string[];
 }
 
 /** Permissions re-checked on each foreground sync. */
@@ -76,6 +80,8 @@ export interface PermissionsState {
   listening: boolean;
   lastSyncedAt: string | null;
   lastError: PermissionError | null;
+  /** Per-key failures. A missing key means that item has not failed (or was cleared). */
+  errors: Record<string, PermissionError>;
   tracked: TrackedPermissions;
 }
 
@@ -102,3 +108,14 @@ export interface RequestNotificationsPayload {
 export interface RequestLocationAccuracyPayload {
   purposeKey: string;
 }
+
+/** Object form of `requestMultiplePermissions`; the array form still works. */
+export interface RequestMultiplePermissionsPayload {
+  permissions: PermissionInput[];
+  /** Forwarded when the batch includes `NOTIFICATIONS`. */
+  notificationsRationale?: Rationale;
+}
+
+export type RequestMultiplePermissionsArg =
+  | PermissionInput[]
+  | RequestMultiplePermissionsPayload;

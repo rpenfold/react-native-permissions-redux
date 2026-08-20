@@ -23,6 +23,15 @@ jobs:
 
       - run: npm ci
 
+      - name: Verify tag matches package.json version
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="$(node -p "require('./package.json').version")"
+          if [ "$TAG" != "v${VERSION}" ]; then
+            echo "::error::Git tag '${TAG}' does not match package.json version '${VERSION}' (expected v${VERSION})."
+            exit 1
+          fi
+
       - name: Lint
         run: npx biome check .
 
@@ -31,6 +40,18 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      - name: Install react-native-permissions v5
+        run: npm install --legacy-peer-deps react-native-permissions@5
+
+      - name: Test against RNP v5
+        run: npm test
+
+      - name: Typecheck against RNP v5
+        run: npm run build
+
+      - name: Restore lockfile deps
+        run: npm ci
 
       - name: Verify NPM_TOKEN
         run: |

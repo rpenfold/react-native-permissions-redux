@@ -1,4 +1,9 @@
-export { SLICE_NAME } from './constants';
+export {
+  SLICE_NAME,
+  SYNC_ERROR_KEY,
+  NOTIFICATIONS_ERROR_KEY,
+  LOCATION_ACCURACY_ERROR_KEY,
+} from './constants';
 export {
   permissionsReducer,
   reset,
@@ -43,6 +48,7 @@ export type {
   StatusCheckedPayload,
   NotificationsCheckedPayload,
   SyncPermissionsResult,
+  MultipleCheckResult,
 } from './permissions-core';
 export {
   selectPermissionStatus,
@@ -53,6 +59,8 @@ export {
   selectListening,
   selectLastSyncedAt,
   selectLastError,
+  selectErrors,
+  selectPermissionError,
   selectTrackedConfig,
 } from './selectors';
 export {
@@ -68,7 +76,11 @@ export {
   THUNK_MIDDLEWARE_ERROR,
 } from './assert-thunk-middleware';
 export { getLocationForegroundCapability } from './location-foreground';
-export { CrossPlatformPermission, resolvePermission } from './cross-platform';
+export {
+  CrossPlatformPermission,
+  resolvePermission,
+  isNotificationsPermission,
+} from './cross-platform';
 export { openSettings, openPhotoPicker } from './rnp-exports';
 export type {
   PermissionInput,
@@ -80,6 +92,8 @@ export type {
   LocationForegroundPrecision,
   RequestPermissionPayload,
   RequestNotificationsPayload,
+  RequestMultiplePermissionsPayload,
+  RequestMultiplePermissionsArg,
   NotificationOption,
   RequestLocationAccuracyPayload,
   Permission,

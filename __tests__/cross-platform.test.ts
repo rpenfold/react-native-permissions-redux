@@ -6,7 +6,11 @@ import {
   resolvePermission,
 } from '../src/cross-platform';
 import { permissionsReducer } from '../src/slice';
-import { checkMultiplePermissions, checkPermission } from '../src/thunks';
+import {
+  checkMultiplePermissions,
+  checkPermission,
+  requestPermission,
+} from '../src/thunks';
 
 const RNP = jest.requireMock('react-native-permissions');
 
@@ -183,6 +187,47 @@ describe('cross-platform', () => {
       const statuses = store.getState()[SLICE_NAME].statuses;
       expect(statuses['ios.permission.CAMERA']).toBe('granted');
       expect(statuses[CrossPlatformPermission.PHONE_CALL]).toBe('unavailable');
+    });
+
+    it('routes NOTIFICATIONS through checkNotifications', async () => {
+      RNP.checkNotifications.mockResolvedValue({
+        status: 'granted',
+        settings: { alert: true },
+      });
+      const store = createStore();
+
+      await store.dispatch(
+        checkPermission(CrossPlatformPermission.NOTIFICATIONS),
+      );
+
+      expect(RNP.check).not.toHaveBeenCalled();
+      expect(RNP.checkNotifications).toHaveBeenCalled();
+      expect(
+        store.getState()[SLICE_NAME].statuses[
+          CrossPlatformPermission.NOTIFICATIONS
+        ],
+      ).toBe('granted');
+      expect(store.getState()[SLICE_NAME].notifications).toEqual({
+        status: 'granted',
+        settings: { alert: true },
+      });
+    });
+
+    it('routes NOTIFICATIONS request through requestNotifications', async () => {
+      RNP.requestNotifications.mockResolvedValue({
+        status: 'denied',
+        settings: { alert: false },
+      });
+      const store = createStore();
+
+      await store.dispatch(
+        requestPermission({
+          permission: CrossPlatformPermission.NOTIFICATIONS,
+        }),
+      );
+
+      expect(RNP.requestNotifications).toHaveBeenCalled();
+      expect(store.getState()[SLICE_NAME].notifications.status).toBe('denied');
     });
 
     it('still accepts native Permission strings directly', async () => {

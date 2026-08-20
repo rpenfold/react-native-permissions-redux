@@ -46,6 +46,7 @@ describe('permissionsSlice', () => {
     expect(state.listening).toBe(false);
     expect(state.lastSyncedAt).toBeNull();
     expect(state.lastError).toBeNull();
+    expect(state.errors).toEqual({});
     expect(state.tracked).toEqual({
       permissions: [],
       notifications: false,
@@ -153,16 +154,38 @@ describe('permissionsSlice', () => {
     expect(state.lastError).toBeNull();
   });
 
-  it('records lastError on syncFailed and clears it on a successful check', async () => {
+  it('records lastError on syncFailed and clears it when that key succeeds', async () => {
     const store = createStore();
-    store.dispatch(syncFailed({ message: 'native boom' }));
+    store.dispatch(
+      syncFailed({ message: 'native boom', key: 'ios.permission.CAMERA' }),
+    );
     expect(store.getState()[SLICE_NAME].lastError).toEqual({
       message: 'native boom',
+      key: 'ios.permission.CAMERA',
     });
+    expect(
+      store.getState()[SLICE_NAME].errors['ios.permission.CAMERA'],
+    ).toEqual({ message: 'native boom', key: 'ios.permission.CAMERA' });
 
     check.mockResolvedValue('granted');
     await store.dispatch(checkPermission('ios.permission.CAMERA' as never));
     expect(store.getState()[SLICE_NAME].lastError).toBeNull();
+    expect(
+      store.getState()[SLICE_NAME].errors['ios.permission.CAMERA'],
+    ).toBeUndefined();
+  });
+
+  it('keeps lastError for a different key after an unrelated success', async () => {
+    const store = createStore();
+    store.dispatch(
+      syncFailed({ message: 'notify failed', key: 'NOTIFICATIONS' }),
+    );
+    check.mockResolvedValue('granted');
+    await store.dispatch(checkPermission('ios.permission.CAMERA' as never));
+    expect(store.getState()[SLICE_NAME].lastError).toEqual({
+      message: 'notify failed',
+      key: 'NOTIFICATIONS',
+    });
   });
 
   it('records lastError when a thunk is rejected', async () => {

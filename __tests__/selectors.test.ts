@@ -1,12 +1,15 @@
 import { SLICE_NAME } from '../src/constants';
+import { CrossPlatformPermission } from '../src/cross-platform';
 import {
   selectAllStatuses,
+  selectErrors,
   selectLastError,
   selectLastSyncedAt,
   selectListening,
   selectLocationAccuracy,
   selectLocationForegroundCapability,
   selectNotifications,
+  selectPermissionError,
   selectPermissionStatus,
   selectTrackedConfig,
 } from '../src/selectors';
@@ -20,6 +23,7 @@ function makeState(overrides: Partial<PermissionsState> = {}) {
     listening: false,
     lastSyncedAt: null,
     lastError: null,
+    errors: {},
     tracked: {
       permissions: [],
       notifications: false,
@@ -112,5 +116,44 @@ describe('selectors', () => {
     const first = selectLocationForegroundCapability(state);
     const second = selectLocationForegroundCapability(state);
     expect(first).toBe(second);
+  });
+
+  it('selectPermissionStatus returns a stable selector per permission', () => {
+    const a = selectPermissionStatus('ios.permission.CAMERA' as never);
+    const b = selectPermissionStatus('ios.permission.CAMERA' as never);
+    expect(a).toBe(b);
+  });
+
+  it('selectErrors returns the errors map', () => {
+    const errors = {
+      NOTIFICATIONS: { message: 'boom', key: 'NOTIFICATIONS' },
+    };
+    expect(selectErrors(makeState({ errors }))).toEqual(errors);
+  });
+
+  it('selectPermissionError reads per-key errors', () => {
+    const state = makeState({
+      errors: {
+        'ios.permission.CAMERA': {
+          message: 'boom',
+          key: 'ios.permission.CAMERA',
+        },
+      },
+    });
+    expect(
+      selectPermissionError('ios.permission.CAMERA' as never)(state),
+    ).toEqual({ message: 'boom', key: 'ios.permission.CAMERA' });
+    expect(
+      selectPermissionError('ios.permission.MICROPHONE' as never)(state),
+    ).toBeNull();
+    expect(
+      selectPermissionError(CrossPlatformPermission.NOTIFICATIONS)(
+        makeState({
+          errors: {
+            NOTIFICATIONS: { message: 'n', key: 'NOTIFICATIONS' },
+          },
+        }),
+      ),
+    ).toEqual({ message: 'n', key: 'NOTIFICATIONS' });
   });
 });

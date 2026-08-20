@@ -131,6 +131,12 @@ const PLATFORM_MAPS: Record<string, PlatformMap> = {
  * Resolves a `CrossPlatformPermission` to the native `Permission` string
  * for the current platform, or `null` if there is no equivalent.
  */
+export function isNotificationsPermission(
+  input: Permission | CrossPlatformPermission,
+): boolean {
+  return input === CrossPlatformPermission.NOTIFICATIONS;
+}
+
 export function resolvePermission(
   permission: CrossPlatformPermission,
 ): Permission | null {

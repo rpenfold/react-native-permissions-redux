@@ -1,13 +1,21 @@
 import { AppState } from 'react-native';
 import type { AppStateStatus } from 'react-native';
-import { buffers, eventChannel } from 'redux-saga';
-import { call, delay, put, race, select, take } from 'redux-saga/effects';
+import { buffers, channel, eventChannel } from 'redux-saga';
+import type { Channel } from 'redux-saga';
+import { call, delay, fork, put, race, select, take } from 'redux-saga/effects';
 import { syncCompleted, syncFailed } from './actions';
 import { isForegroundSyncTransition } from './app-state';
 import { errorMessage } from './error';
 import { syncPermissionsCore } from './permissions-core';
-import { selectTrackedConfig } from './selectors';
-import { setListening, setTrackedConfig } from './slice';
+import { selectListening, selectTrackedConfig } from './selectors';
+import {
+  setListening,
+  setLocationAccuracyTracking,
+  setNotificationsTracking,
+  setTrackedConfig,
+  trackPermissions,
+} from './slice';
+import { trackedSetGrew } from './tracked';
 import type { ForegroundSyncOn, PermissionsConfig } from './types';
 
 function createAppStateForegroundChannel(syncOn: ForegroundSyncOn) {
@@ -30,17 +38,51 @@ function* runForegroundSync() {
       syncPermissionsCore,
       config,
     );
+    const listening: boolean = yield select(selectListening);
+    if (!listening) {
+      return;
+    }
     const hasData = Boolean(
       result.statuses || result.notifications || result.locationAccuracy,
     );
-    if (hasData || !result.error) {
+    if (hasData) {
       yield put(syncCompleted(result));
     }
     if (result.error) {
       yield put(syncFailed(result.error));
     }
   } catch (error) {
+    const listening: boolean = yield select(selectListening);
+    if (!listening) {
+      return;
+    }
     yield put(syncFailed({ message: errorMessage(error) }));
+  }
+}
+
+function* syncWorker(requests: Channel<true>) {
+  while (true) {
+    yield take(requests);
+    yield call(runForegroundSync);
+  }
+}
+
+function* watchTrackedChanges(requests: Channel<true>) {
+  let previous: PermissionsConfig = yield select(selectTrackedConfig);
+  while (true) {
+    yield take([
+      trackPermissions.type,
+      setNotificationsTracking.type,
+      setLocationAccuracyTracking.type,
+      setTrackedConfig.type,
+    ]);
+    const next: PermissionsConfig = yield select(selectTrackedConfig);
+    if (trackedSetGrew(previous, next)) {
+      previous = next;
+      yield put(requests, true);
+    } else {
+      previous = next;
+    }
   }
 }
 
@@ -52,6 +94,16 @@ function* runForegroundSync() {
 export function* permissionForegroundSyncSaga(
   config: PermissionsConfig,
 ): Generator {
+  const alreadyListening: boolean = yield select(selectListening);
+  if (alreadyListening) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.warn(
+        '[react-native-permissions-redux] permissionForegroundSyncSaga forked while already listening; ignoring.',
+      );
+    }
+    return;
+  }
+
   yield put(
     setTrackedConfig({
       permissions: config.permissions ?? [],
@@ -62,16 +114,21 @@ export function* permissionForegroundSyncSaga(
   yield put(setListening(true));
   const syncOn = config.syncOn ?? 'nonActiveToActive';
   const debounceMs = config.debounceMs ?? 0;
-  const channel: ReturnType<typeof createAppStateForegroundChannel> =
+  const appChannel: ReturnType<typeof createAppStateForegroundChannel> =
     yield call(createAppStateForegroundChannel, syncOn);
+  const syncRequests: Channel<true> = yield call(() =>
+    channel<true>(buffers.sliding(1)),
+  );
   try {
-    yield call(runForegroundSync);
+    yield fork(syncWorker, syncRequests);
+    yield fork(watchTrackedChanges, syncRequests);
+    yield put(syncRequests, true);
     while (true) {
-      yield take(channel);
+      yield take(appChannel);
       if (debounceMs > 0) {
         while (true) {
           const raced: { next?: true } = yield race({
-            next: take(channel),
+            next: take(appChannel),
             timeout: delay(debounceMs),
           });
           if (!raced.next) {
@@ -79,10 +136,11 @@ export function* permissionForegroundSyncSaga(
           }
         }
       }
-      yield call(runForegroundSync);
+      yield put(syncRequests, true);
     }
   } finally {
-    channel.close();
+    appChannel.close();
+    syncRequests.close();
     yield put(setListening(false));
   }
 }

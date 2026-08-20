@@ -5,6 +5,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] - 2026-08-19
+
+### Fixed
+
+- Saga foreground sync is coalesced through a sliding request channel and ignores completions after teardown (parity with the thunk path)
+- Notification errors use the `NOTIFICATIONS` key so `selectPermissionError(NOTIFICATIONS)` sees sync / `checkNotifications` failures
+- `check` / `request` of `NOTIFICATIONS` dual-writes `state.notifications` (status + settings)
+- A failed `checkMultiple` no longer discards notifications (or other) results already fetched in the same batch
+- Empty sync configs no longer stamp `lastSyncedAt`
+- Saga tracked-set updates use `trackedSetGrew` and react to `setTrackedConfig`
+- README listener vs saga API reference no longer shares Parameters/Returns
+- Publish workflow typechecks and tests against react-native-permissions v5
+- Listener `stop()` invalidates in-flight syncs so a late completion cannot write after teardown
+- Saga-only hook fallbacks dispatch `syncFailed` when a native call throws, and location `refresh` records a partial `checkMultiple` error
+- `selectLastError` is documented as the global most-recent failure (use `selectPermissionError` for per-key)
+- Public exports `setTrackedConfig`, error-key constants, library actions, and `isNotificationsPermission` are documented
+- Publish workflow requires the git tag to match `package.json` version
+- `checkMultiple` / `requestMultiple` deduplicate native keys (iOS coarse + fine resolve to the same string)
+- `requestMultiplePermissions` accepts `{ permissions, notificationsRationale? }` so a batch that includes `NOTIFICATIONS` can show an Android rationale
+- Document that `reset()` is not listener/saga teardown, and that only one listener or saga should run at a time
+
+## [0.1.1] - 2026-08-14
+
+### Added
+
+- `errors` map and `selectPermissionError` / `selectErrors` so a failed camera check is distinct from a failed notifications check
+- Hooks fall back to core functions + library actions when thunk middleware is absent
+- Immediate sync when `trackPermissions` (or notifications/accuracy tracking) adds work
+
+### Fixed
+
+- `CrossPlatformPermission.NOTIFICATIONS` now uses `checkNotifications` / `requestNotifications` on every platform (RNP v5-safe, works on iOS)
+- `selectPermissionStatus` is cached per permission so `useSelector` does not allocate a new selector each render
+- `startPermissionListener` restarts instead of stacking AppState subscriptions; a second saga fork is ignored while already listening
+
 ## [0.1.0] - 2026-08-13
 
 ### Added

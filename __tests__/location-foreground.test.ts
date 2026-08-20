@@ -17,6 +17,7 @@ function baseState(
     listening: false,
     lastSyncedAt: null,
     lastError: null,
+    errors: {},
     tracked: {
       permissions: [],
       notifications: false,
